@@ -33,6 +33,10 @@
     header .links a {
         color: var(--text-primary);
     }
+
+    footer {
+        display: none;
+    }
 }
 
 @page {

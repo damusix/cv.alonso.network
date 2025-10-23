@@ -48,8 +48,6 @@ header .links a {
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    color: var(--accent-color);
-    text-decoration: none;
     font-size: 0.875rem;
 }
 

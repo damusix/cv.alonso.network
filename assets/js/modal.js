@@ -21,8 +21,16 @@ export function initializeModal() {
     });
 }
 
+const wasFetched = new Map();
+
 export async function showModal(markdownUrl) {
     if (!modal) return;
+
+    if (wasFetched.has(markdownUrl)) {
+        modalContent.innerHTML = wasFetched.get(markdownUrl);
+        modal.showModal();
+        return;
+    }
 
     try {
         // Fetch markdown file
@@ -45,6 +53,9 @@ export async function showModal(markdownUrl) {
         // Set content and show modal
         modalContent.innerHTML = htmlContent;
         modal.showModal();
+
+        // Cache the fetched content
+        wasFetched.set(markdownUrl, htmlContent);
     } catch (error) {
         console.error('Error loading modal content:', error);
         modalContent.innerHTML = `<p style="color: #991b1b;">Failed to load content: ${error.message}</p>`;

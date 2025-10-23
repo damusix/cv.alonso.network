@@ -15,8 +15,8 @@ export function renderHeader(data) {
 
     const contactEl = document.getElementById('contact');
     contactEl.innerHTML = `
-        <div class="item"><i class="fas fa-envelope"></i> ${data.email}</div>
-        <div class="item"><i class="fas fa-phone"></i> ${data.phone}</div>
+        <div class="item"><i class="fas fa-envelope"></i><a target="_blank" href="mailto:${data.email}">${data.email}</a></div>
+        <div class="item"><i class="fas fa-phone"></i><a target="_blank" href="tel:${data.phone}">${data.phone}</a></div>
         <div class="item"><i class="fas fa-location-dot"></i> ${data.location}</div>
     `;
 

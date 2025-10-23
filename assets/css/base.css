@@ -45,3 +45,7 @@ code {
     font-family: 'Courier New', monospace;
     font-size: 0.875em;
 }
+a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
