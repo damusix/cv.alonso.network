@@ -1,6 +1,6 @@
 // Local Storage Management
 
-import { STORAGE_CODE_KEY, STORAGE_RESULT_KEY, STORAGE_MODE_KEY } from './config.js';
+import { STORAGE_CODE_KEY, STORAGE_RESULT_KEY, STORAGE_MODE_KEY, STORAGE_STYLES_KEY } from './config.js';
 
 export function loadSavedData() {
     const savedCode = localStorage.getItem(STORAGE_CODE_KEY);
@@ -36,4 +36,16 @@ export function saveEditorMode(mode) {
 export function clearSavedData() {
     localStorage.removeItem(STORAGE_CODE_KEY);
     localStorage.removeItem(STORAGE_RESULT_KEY);
+}
+
+export function loadSavedStyles() {
+    return localStorage.getItem(STORAGE_STYLES_KEY);
+}
+
+export function saveStyles(css) {
+    localStorage.setItem(STORAGE_STYLES_KEY, css);
+}
+
+export function clearSavedStyles() {
+    localStorage.removeItem(STORAGE_STYLES_KEY);
 }

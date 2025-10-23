@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="assets/css/cv.css">
   <link rel="stylesheet" href="assets/css/editor.css">
   <link rel="stylesheet" href="assets/css/action-menu.css">
+  <link rel="stylesheet" href="assets/css/modal.css">
   <link rel="stylesheet" href="assets/css/print.css">
 </head>
 <body>
@@ -54,6 +55,13 @@
         </div>
         <span class="shortcut">⌘P</span>
       </button>
+      <button onclick="showHelpModal()">
+        <div class="button-content">
+          <i class="fas fa-question-circle"></i>
+          <span>Help</span>
+        </div>
+        <span class="shortcut">?</span>
+      </button>
     </div>
   </div>
 
@@ -66,18 +74,40 @@
       <div class="mode-toggle">
         <button class="active" data-mode="json" onclick="setEditorMode('json')">JSON</button>
         <button data-mode="javascript" onclick="setEditorMode('javascript')">JavaScript</button>
+        <button data-mode="css" onclick="setEditorMode('css')">Styles</button>
       </div>
       <div class="editor-actions">
-        <button onclick="toggleFullscreen()" title="Toggle Fullscreen (⌘\ / Ctrl+\)" style="padding: 0.5rem 0.75rem;">
+        <button onclick="toggleFullscreen()" title="Toggle Fullscreen (⌘\ / Ctrl+\)">
           <i class="fas fa-expand" id="fullscreenIcon"></i>
         </button>
-        <button onclick="resetData()">Reset</button>
-        <button class="primary" onclick="applyChanges()" title="Apply Changes (⌘S / Ctrl+S)">Apply</button>
+        <button onclick="importCV()" title="Import CV (.cvml file)">
+          <i class="fas fa-upload"></i>
+        </button>
+        <button onclick="exportCV()" title="Export CV (.cvml file)">
+          <i class="fas fa-download"></i>
+        </button>
+        <button onclick="resetData()" title="Reset to defaults">
+          <i class="fas fa-undo"></i>
+        </button>
+        <button class="primary" onclick="applyChanges()" title="Apply Changes (⌘S / Ctrl+S)">
+          <i class="fas fa-save"></i>
+        </button>
       </div>
     </div>
     <div class="editor-container" id="editorContainer"></div>
     <div class="editor-error" id="editorError"></div>
   </div>
+
+  <!-- Help Modal -->
+  <dialog id="helpModal">
+    <header>
+      <h2>Help</h2>
+      <button class="close" onclick="closeModal()" aria-label="Close">×</button>
+    </header>
+    <section id="modalContent">
+      Loading...
+    </section>
+  </dialog>
 
   <!-- JavaScript Module Entry Point -->
   <script type="module" src="assets/js/main.js"></script>

@@ -3,6 +3,7 @@
 import { toggleEditor, applyChanges } from './editor.js';
 import { toggleActionMenu } from './action-menu.js';
 import { toggleFullscreen } from './ui-utils.js';
+import { showHelpModal } from './modal.js';
 
 let lastEscapeTime = 0;
 
@@ -59,6 +60,12 @@ export function initializeKeyboardShortcuts() {
             } else {
                 lastEscapeTime = now;
             }
+        }
+
+        // ? to open help modal
+        if (e.key === '?' && !isEditorOpen) {
+            e.preventDefault();
+            showHelpModal();
         }
     });
 }

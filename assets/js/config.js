@@ -3,6 +3,7 @@
 export const STORAGE_CODE_KEY = 'cv-data-code';
 export const STORAGE_RESULT_KEY = 'cv-data-result';
 export const STORAGE_MODE_KEY = 'cv-editor-mode';
+export const STORAGE_STYLES_KEY = 'cv-custom-styles';
 
 export const cvData = {
     personal: {

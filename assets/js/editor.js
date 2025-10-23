@@ -5,6 +5,7 @@ import { CVDataSchema } from './validation.js';
 import { loadSavedData, saveCVData, saveEditorMode, clearSavedData } from './storage.js';
 import { renderCV } from './cv-renderer.js';
 import { showError, hideError, toggleFullscreen } from './ui-utils.js';
+import { applyStyles, getCurrentStyles, resetStyles } from './styles.js';
 
 let editor;
 let editorMode = 'json';
@@ -17,7 +18,7 @@ export function getEditorMode() {
     return editorMode;
 }
 
-export function initializeEditor() {
+export async function initializeEditor() {
     const savedData = loadSavedData();
 
     if (savedData.mode) {
@@ -25,24 +26,31 @@ export function initializeEditor() {
     }
 
     require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
-    require(['vs/editor/editor.main'], function () {
+    require(['vs/editor/editor.main'], async function () {
         let initialValue;
+        let initialLanguage;
 
-        if (savedData.code) {
+        if (editorMode === 'css') {
+            // CSS mode - load styles asynchronously
+            initialValue = await getCurrentStyles();
+            initialLanguage = 'css';
+        } else if (savedData.code) {
             // Use saved code
             initialValue = savedData.code;
+            initialLanguage = editorMode;
         } else {
             // Generate default code based on mode
             const dataToUse = savedData.result || cvData;
             initialValue = editorMode === 'json'
                 ? JSON.stringify(dataToUse, null, 4)
                 : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
+            initialLanguage = editorMode;
         }
 
         editor = monaco.editor.create(document.getElementById('editorContainer'), {
             value: initialValue,
-            language: editorMode,
-            theme: 'vs',
+            language: initialLanguage,
+            theme: 'vs-dark',
             automaticLayout: true,
             minimap: { enabled: false },
             fontSize: 13,
@@ -72,7 +80,7 @@ export function toggleEditor() {
     panel.classList.toggle('open');
 }
 
-export function setEditorMode(mode) {
+export async function setEditorMode(mode) {
     if (!editor) return;
 
     const previousMode = editorMode;
@@ -83,7 +91,18 @@ export function setEditorMode(mode) {
     let newValue;
 
     try {
-        if (mode === 'json') {
+        if (mode === 'css') {
+            // Switching to CSS mode - load styles asynchronously
+            newValue = await getCurrentStyles();
+            monaco.editor.setModelLanguage(editor.getModel(), 'css');
+        } else if (previousMode === 'css') {
+            // Switching from CSS to data mode
+            const dataToUse = cvData;
+            newValue = mode === 'json'
+                ? JSON.stringify(dataToUse, null, 4)
+                : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
+            monaco.editor.setModelLanguage(editor.getModel(), mode);
+        } else if (mode === 'json') {
             // Converting from JS to JSON
             if (previousMode === 'javascript') {
                 const fn = new Function(currentValue);
@@ -92,6 +111,7 @@ export function setEditorMode(mode) {
             } else {
                 newValue = currentValue;
             }
+            monaco.editor.setModelLanguage(editor.getModel(), mode);
         } else {
             // Converting from JSON to JS
             if (previousMode === 'json') {
@@ -100,13 +120,15 @@ export function setEditorMode(mode) {
             } else {
                 newValue = currentValue;
             }
+            monaco.editor.setModelLanguage(editor.getModel(), mode);
         }
 
-        monaco.editor.setModelLanguage(editor.getModel(), mode);
         editor.setValue(newValue);
 
-        // Save the converted code
-        localStorage.setItem('cv-data-code', newValue);
+        // Save the converted code (only for non-CSS modes)
+        if (mode !== 'css') {
+            localStorage.setItem('cv-data-code', newValue);
+        }
 
         updateModeToggle();
         hideError();
@@ -133,31 +155,37 @@ export function applyChanges() {
     hideError();
 
     try {
-        let data;
-
-        if (editorMode === 'json') {
-            data = JSON.parse(code);
+        if (editorMode === 'css') {
+            // Apply CSS styles
+            applyStyles(code);
         } else {
-            const fn = new Function(code);
-            data = fn();
+            // Apply CV data
+            let data;
+
+            if (editorMode === 'json') {
+                data = JSON.parse(code);
+            } else {
+                const fn = new Function(code);
+                data = fn();
+            }
+
+            // Validate with Zod
+            const result = CVDataSchema.safeParse(data);
+
+            if (!result.success) {
+                // Format Zod errors for display
+                const errors = result.error.issues.map(issue =>
+                    `${issue.path.join('.')}: ${issue.message}`
+                ).join('\n');
+                throw new Error(`Validation failed:\n${errors}`);
+            }
+
+            // Save both the code and the result to localStorage
+            saveCVData(code, result.data);
+
+            // Re-render CV
+            renderCV(result.data);
         }
-
-        // Validate with Zod
-        const result = CVDataSchema.safeParse(data);
-
-        if (!result.success) {
-            // Format Zod errors for display
-            const errors = result.error.issues.map(issue =>
-                `${issue.path.join('.')}: ${issue.message}`
-            ).join('\n');
-            throw new Error(`Validation failed:\n${errors}`);
-        }
-
-        // Save both the code and the result to localStorage
-        saveCVData(code, result.data);
-
-        // Re-render CV
-        renderCV(result.data);
 
         // Show success feedback (optional - could add visual feedback here)
     } catch (e) {
@@ -165,18 +193,27 @@ export function applyChanges() {
     }
 }
 
-export function resetData() {
+export async function resetData() {
     if (!editor) return;
 
-    if (confirm('Reset to default data? This will clear your saved changes.')) {
-        clearSavedData();
+    const confirmMessage = editorMode === 'css'
+        ? 'Reset to default styles? This will clear your saved changes.'
+        : 'Reset to default data? This will clear your saved changes.';
 
-        const defaultValue = editorMode === 'json'
-            ? JSON.stringify(cvData, null, 4)
-            : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(cvData, null, 4)};`;
+    if (confirm(confirmMessage)) {
+        if (editorMode === 'css') {
+            const defaultValue = await resetStyles();
+            editor.setValue(defaultValue);
+        } else {
+            clearSavedData();
 
-        editor.setValue(defaultValue);
-        renderCV(cvData);
+            const defaultValue = editorMode === 'json'
+                ? JSON.stringify(cvData, null, 4)
+                : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(cvData, null, 4)};`;
+
+            editor.setValue(defaultValue);
+            renderCV(cvData);
+        }
         hideError();
     }
 }

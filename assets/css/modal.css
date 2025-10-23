@@ -1,0 +1,144 @@
+/* Modal Dialog Styles */
+
+dialog {
+    max-width: 800px;
+    width: 90vw;
+    max-height: 80vh;
+    padding: 0;
+    border: none;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    margin: auto;
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+dialog header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+dialog header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+dialog .close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    transition: background 0.2s;
+}
+
+dialog .close:hover {
+    background: #f3f4f6;
+}
+
+dialog section {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    max-height: calc(80vh - 80px);
+}
+
+dialog section h1 {
+    font-size: 1.5rem;
+    margin-bottom: var(--spacing-md);
+}
+
+dialog section h2 {
+    font-size: 1.25rem;
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+}
+
+dialog section h3 {
+    font-size: 1.125rem;
+    margin-top: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+}
+
+dialog section p {
+    margin-bottom: var(--spacing-md);
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+dialog section ul,
+dialog section ol {
+    margin-bottom: var(--spacing-md);
+    margin-left: 1.5rem;
+}
+
+dialog section li {
+    margin-bottom: var(--spacing-sm);
+    color: var(--text-secondary);
+}
+
+dialog section code {
+    background: #f3f4f6;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875em;
+}
+
+dialog section pre {
+    background: #f3f4f6;
+    padding: var(--spacing-md);
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    margin-bottom: var(--spacing-md);
+}
+
+dialog section pre code {
+    background: none;
+    padding: 0;
+}
+
+dialog section blockquote {
+    border-left: 4px solid var(--accent-color);
+    padding-left: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+dialog section a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+dialog section a:hover {
+    text-decoration: underline;
+}
+
+dialog section kbd {
+    background: #f3f4f6;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875em;
+}
+
+@media print {
+    dialog {
+        display: none !important;
+    }
+}
