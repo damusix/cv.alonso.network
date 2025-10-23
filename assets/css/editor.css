@@ -141,3 +141,9 @@
 .editor-error.show {
     display: block;
 }
+
+.editor-error.success {
+    background: #f0fdf4;
+    border-top-color: #bbf7d0;
+    color: #166534;
+}

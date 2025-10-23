@@ -5,7 +5,7 @@ import { loadSavedStyles, saveStyles } from './storage.js';
 import { renderCV } from './cv-renderer.js';
 import { applyStyles } from './styles.js';
 import { getEditorMode, getEditor } from './editor.js';
-import { showError, hideError } from './ui-utils.js';
+import { showError, showSuccess, hideError } from './ui-utils.js';
 
 export function exportCV() {
     try {
@@ -115,12 +115,9 @@ export function importCV() {
                 hideError();
 
                 // Show success message briefly
-                const originalError = document.getElementById('editorError').textContent;
-                showError('Import successful!');
+                showSuccess('Import successful!');
                 setTimeout(() => {
-                    if (document.getElementById('editorError').textContent === 'Import successful!') {
-                        hideError();
-                    }
+                    hideError();
                 }, 2000);
             } else {
                 throw new Error('No valid CV data found in file');
