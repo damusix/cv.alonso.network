@@ -21,7 +21,8 @@ dialog header {
     justify-content: space-between;
     align-items: center;
     padding: var(--spacing-lg);
-    border-bottom: 1px solid var(--border-color);
+    box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.1);
+    margin-bottom: 0;
 }
 
 dialog header h2 {
@@ -30,10 +31,17 @@ dialog header h2 {
     font-weight: 600;
 }
 
+dialog .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+dialog .copy-markdown,
 dialog .close {
     background: none;
     border: none;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     cursor: pointer;
     color: var(--text-secondary);
     padding: 0;
@@ -43,11 +51,25 @@ dialog .close {
     align-items: center;
     justify-content: center;
     border-radius: 0.25rem;
-    transition: background 0.2s;
+    transition: background 0.2s, color 0.2s;
 }
 
+dialog .copy-markdown:hover,
 dialog .close:hover {
     background: #f3f4f6;
+    color: var(--text-primary);
+}
+
+dialog .copy-markdown:active {
+    background: #e5e7eb;
+}
+
+dialog .copy-markdown.copied {
+    color: #059669;
+}
+
+dialog .close {
+    font-size: 1.5rem;
 }
 
 dialog section {

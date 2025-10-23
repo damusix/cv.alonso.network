@@ -7,7 +7,7 @@ import { initializeActionMenu, toggleActionMenu, openEditor, printCV } from './a
 import { initializeKeyboardShortcuts } from './keyboard.js';
 import { toggleFullscreen } from './ui-utils.js';
 import { loadAndApplyStyles } from './styles.js';
-import { initializeModal, showHelpModal, closeModal } from './modal.js';
+import { initializeModal, showHelpModal, showPromptModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js';
 import { exportCV, importCV } from './exports.js';
 
 // Async initialization
@@ -32,6 +32,12 @@ import { exportCV, importCV } from './exports.js';
     // Initialize modal
     initializeModal();
 
+    // Show help modal on first visit
+    if (isFirstVisit()) {
+        showHelpModal();
+        markVisited();
+    }
+
     // Expose functions to window for onclick handlers
     window.toggleEditor = toggleEditor;
     window.toggleActionMenu = toggleActionMenu;
@@ -42,7 +48,9 @@ import { exportCV, importCV } from './exports.js';
     window.applyChanges = applyChanges;
     window.resetData = resetData;
     window.showHelpModal = showHelpModal;
+    window.showPromptModal = showPromptModal;
     window.closeModal = closeModal;
+    window.copyModalMarkdown = copyModalMarkdown;
     window.exportCV = exportCV;
     window.importCV = importCV;
 })();

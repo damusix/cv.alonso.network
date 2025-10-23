@@ -3,8 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CV</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.1/js/all.min.js"></script>
+
+  <!-- SEO Meta Tags -->
+  <title>CV Generator - Simple Online Resume Editor</title>
+  <meta name="description" content="A simple CV editor with live preview. Edit your resume data as JSON, customize styles, and export to PDF or CVML format.">
+  <meta name="keywords" content="cv generator, resume editor, cv editor, online cv, json editor, resume builder">
+  <meta name="author" content="@alonso_network">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#2c3e50">
+  <meta name="application-name" content="CV Generator">
+
+  <!-- Open Graph Meta Tags -->
+  <meta property="og:title" content="CV Generator - Simple Online Resume Editor">
+  <meta property="og:description" content="A simple CV editor with live preview. Edit your resume data as JSON, customize styles, and export to PDF or CVML format.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://cv.alonso.network">
+  <meta property="og:site_name" content="CV Generator">
+  <meta property="og:image" content="https://cv.alonso.network/social.png">
+  <meta property="og:image:alt" content="CV Generator - Simple Online Resume Editor">
+
+  <!-- Twitter Card Meta Tags -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:creator" content="@alonso_network">
+  <meta name="twitter:title" content="CV Generator - Simple Online Resume Editor">
+  <meta name="twitter:description" content="A simple CV editor with live preview. Edit your resume data as JSON, customize styles, and export to PDF or CVML format.">
+  <meta name="twitter:image" content="https://cv.alonso.network/social.png">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/js/all.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
 
@@ -38,7 +62,7 @@
 
   <div class="action-menu-container">
     <button class="menu-toggle" onclick="toggleActionMenu()" title="Actions">
-      <i class="fas fa-bars"></i>
+      <i class="fa-solid fa-ellipsis-vertical"></i>
     </button>
     <div class="action-menu" id="actionMenu">
       <button onclick="openEditor()">
@@ -54,6 +78,12 @@
           <span>Print CV</span>
         </div>
         <span class="shortcut">⌘P</span>
+      </button>
+      <button onclick="showPromptModal()">
+        <div class="button-content">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+          <span>LLM Prompt</span>
+        </div>
       </button>
       <button onclick="showHelpModal()">
         <div class="button-content">
@@ -101,8 +131,13 @@
   <!-- Help Modal -->
   <dialog id="helpModal">
     <header>
-      <h2>Help</h2>
-      <button class="close" onclick="closeModal()" aria-label="Close">×</button>
+      <h2 id="modalTitle">Help</h2>
+      <div class="modal-actions">
+        <button class="copy-markdown" onclick="copyModalMarkdown()" aria-label="Copy Markdown" title="Copy Markdown">
+          <i class="fas fa-copy"></i>
+        </button>
+        <button class="close" onclick="closeModal()" aria-label="Close">×</button>
+      </div>
     </header>
     <section id="modalContent">
       Loading...

@@ -44,8 +44,46 @@ export async function initializeEditor() {
             // CSS mode - load styles asynchronously
             initialValue = await getCurrentStyles();
             initialLanguage = 'css';
+        } else if (savedData.code && savedData.result) {
+            // Validate that code and result are in sync before using saved code
+            // This prevents loading corrupt code from localStorage
+            try {
+                let codeResult;
+                if (editorMode === 'json') {
+                    codeResult = JSON.parse(savedData.code);
+                } else {
+                    const fn = new Function(savedData.code);
+                    codeResult = fn();
+                }
+
+                // If code executes and produces the same result, use it
+                if (JSON.stringify(codeResult) === JSON.stringify(savedData.result)) {
+                    initialValue = savedData.code;
+                    initialLanguage = editorMode;
+                } else {
+                    // Code and result are out of sync - regenerate from result (source of truth)
+                    console.warn('localStorage code/result mismatch detected, regenerating from result');
+                    const dataToUse = savedData.result;
+                    initialValue = editorMode === 'json'
+                        ? JSON.stringify(dataToUse, null, 4)
+                        : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
+                    initialLanguage = editorMode;
+                    // Fix localStorage immediately
+                    localStorage.setItem('cv-data-code', initialValue);
+                }
+            } catch (e) {
+                // Code is invalid - regenerate from result
+                console.warn('Invalid code in localStorage, regenerating from result', e);
+                const dataToUse = savedData.result;
+                initialValue = editorMode === 'json'
+                    ? JSON.stringify(dataToUse, null, 4)
+                    : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
+                initialLanguage = editorMode;
+                // Fix localStorage immediately
+                localStorage.setItem('cv-data-code', initialValue);
+            }
         } else if (savedData.code) {
-            // Use saved code
+            // No result to validate against, use saved code as-is
             initialValue = savedData.code;
             initialLanguage = editorMode;
         } else {
@@ -228,8 +266,9 @@ export async function setEditorMode(mode) {
             // Switching to CSS mode - load styles asynchronously
             newValue = await getCurrentStyles();
         } else if (previousMode === 'css') {
-            // Switching from CSS to data mode
-            const dataToUse = cvData;
+            // Switching from CSS to data mode - use saved data
+            const savedData = loadSavedData();
+            const dataToUse = savedData.result || cvData;
             newValue = mode === 'json'
                 ? JSON.stringify(dataToUse, null, 4)
                 : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;

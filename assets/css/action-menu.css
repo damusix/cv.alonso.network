@@ -10,13 +10,13 @@
 .menu-toggle {
     width: 56px;
     height: 56px;
-    border-radius: 50%;
     background: var(--accent-color);
     color: white;
-    border: none;
+    border-radius: 50%;
+    border: 0;
     font-size: 1.5rem;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    box-shadow: 2px 3px 3px rgba(0,0,0,0.3);
     transition: transform 0.2s;
 }
 
