@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CV</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.1/js/all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <style>
+    /* Editor Styles */
+    .editor-toggle {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      color: white;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      transition: transform 0.2s;
+    }
+
+    .editor-toggle:hover {
+      transform: scale(1.05);
+    }
+
+    .editor-panel {
+      position: fixed;
+      top: 0;
+      right: -600px;
+      width: 600px;
+      height: 100vh;
+      background: white;
+      box-shadow: -4px 0 12px rgba(0,0,0,0.15);
+      z-index: 999;
+      transition: right 0.3s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .editor-panel.open {
+      right: 0;
+    }
+
+    .editor-panel.fullscreen {
+      width: 100vw;
+      left: 0;
+      right: 0;
+      z-index: 9999;
+    }
+
+    .editor-header {
+      padding: var(--spacing-lg);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .editor-header h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .editor-header .close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: var(--text-secondary);
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .editor-controls {
+      padding: var(--spacing-md) var(--spacing-lg);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      gap: var(--spacing-md);
+      align-items: center;
+    }
+
+    .mode-toggle {
+      display: flex;
+      background: #f3f4f6;
+      border-radius: 0.375rem;
+      padding: 0.25rem;
+    }
+
+    .mode-toggle button {
+      padding: 0.375rem 0.75rem;
+      border: none;
+      background: none;
+      cursor: pointer;
+      border-radius: 0.25rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: all 0.2s;
+    }
+
+    .mode-toggle button.active {
+      background: white;
+      color: var(--accent-color);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .editor-actions {
+      margin-left: auto;
+      display: flex;
+      gap: var(--spacing-sm);
+    }
+
+    .editor-actions button {
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--border-color);
+      background: white;
+      cursor: pointer;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    .editor-actions button:hover {
+      background: #f9fafb;
+    }
+
+    .editor-actions button.primary {
+      background: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+
+    .editor-actions button.primary:hover {
+      background: #1d4ed8;
+    }
+
+    .editor-container {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .editor-error {
+      padding: var(--spacing-md) var(--spacing-lg);
+      background: #fef2f2;
+      border-top: 1px solid #fecaca;
+      color: #991b1b;
+      font-size: 0.875rem;
+      font-family: 'Courier New', monospace;
+      display: none;
+      white-space: pre-wrap;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .editor-error.show {
+      display: block;
+    }
+
+    @media print {
+      .editor-toggle,
+      .editor-panel,
+      .action-menu-container {
+        display: none !important;
+      }
+    }
+
+    /* Action Menu */
+    .action-menu-container {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 998;
+    }
+
+    .menu-toggle {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      color: white;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transition: transform 0.2s;
+    }
+
+    .menu-toggle:hover {
+      transform: scale(1.05);
+    }
+
+    .action-menu {
+      position: absolute;
+      bottom: 70px;
+      right: 0;
+      background: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 0.5rem;
+      min-width: 180px;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+
+    .action-menu.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: all;
+    }
+
+    .action-menu button {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: none;
+      background: white;
+      cursor: pointer;
+      text-align: left;
+      border-radius: 0.375rem;
+      font-size: 0.9375rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: background 0.2s;
+      justify-content: space-between;
+    }
+
+    .action-menu button:hover {
+      background: #f3f4f6;
+    }
+
+    .action-menu button .button-content {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .action-menu button i {
+      width: 20px;
+      text-align: center;
+      color: var(--accent-color);
+    }
+
+    .action-menu button .shortcut {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+
+    /* Reset and Base */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --text-primary: #1a1a1a;
+      --text-secondary: #4a4a4a;
+      --text-muted: #6a6a6a;
+      --border-color: #e0e0e0;
+      --accent-color: #2563eb;
+      --spacing-sm: 0.5rem;
+      --spacing-md: 1rem;
+      --spacing-lg: 1.5rem;
+      --spacing-xl: 2rem;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      line-height: 1.6;
+      color: var(--text-primary);
+      background: #fafafa;
+      padding: var(--spacing-xl);
+    }
+
+    .cv-container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: var(--spacing-xl);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    /* Header */
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: var(--spacing-lg);
+      padding-bottom: var(--spacing-lg);
+      border-bottom: 2px solid var(--border-color);
+      margin-bottom: var(--spacing-xl);
+    }
+
+    header .info h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    header .info .title {
+      font-size: 1.125rem;
+      color: var(--text-secondary);
+      margin-bottom: var(--spacing-md);
+    }
+
+    header .contact {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--spacing-sm) var(--spacing-md);
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+
+    header .contact .item {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    header .links {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+      justify-content: center;
+    }
+
+    header .links a {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      color: var(--accent-color);
+      text-decoration: none;
+      font-size: 0.875rem;
+    }
+
+    header .links a:hover {
+      text-decoration: underline;
+    }
+
+    /* Summary */
+    .summary {
+      margin-bottom: var(--spacing-xl);
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    /* Sections */
+    main section {
+      margin-bottom: var(--spacing-xl);
+    }
+
+    main section:last-child {
+      margin-bottom: 0;
+    }
+
+    main section h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: var(--spacing-sm);
+      margin-bottom: var(--spacing-lg);
+    }
+
+    /* Section Items */
+    main section .item {
+      margin-bottom: var(--spacing-lg);
+    }
+
+    main section .item:last-child {
+      margin-bottom: 0;
+    }
+
+    main section .item .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-sm);
+    }
+
+    main section .item .header h3 {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+
+    main section .item .header .period {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      white-space: nowrap;
+    }
+
+    main section .item .meta {
+      display: flex;
+      gap: var(--spacing-md);
+      color: var(--text-secondary);
+      font-size: 0.9375rem;
+      margin-bottom: var(--spacing-sm);
+    }
+
+    main section .item .meta .subtitle {
+      font-weight: 500;
+    }
+
+    main section .item .meta .location {
+      color: var(--text-muted);
+    }
+
+    main section .item .content ul {
+      list-style: disc;
+      margin-left: 1.25rem;
+    }
+
+    main section .item .content li {
+      margin-bottom: 0.375rem;
+      color: var(--text-secondary);
+    }
+
+    main section .item .content li:last-child {
+      margin-bottom: 0;
+    }
+
+    main section .item .content p {
+      color: var(--text-secondary);
+      margin-bottom: 0.375rem;
+    }
+
+    main section .item .content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Tags */
+    main section .item .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-sm);
+      margin-top: var(--spacing-sm);
+    }
+
+    main section .item .tags .tag {
+      background: #f3f4f6;
+      color: var(--text-secondary);
+      padding: 0.25rem 0.625rem;
+      border-radius: 0.25rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: var(--spacing-xl);
+      padding-top: var(--spacing-lg);
+      border-top: 1px solid var(--border-color);
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Support */
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+    code {
+      background: #f3f4f6;
+      padding: 0.125rem 0.25rem;
+      border-radius: 0.1875rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.875em;
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+
+      .cv-container {
+        max-width: none;
+        box-shadow: none;
+        padding: 0;
+      }
+
+      header {
+        page-break-after: avoid;
+      }
+
+      main section {
+        page-break-inside: avoid;
+      }
+
+      main section .item {
+        page-break-inside: avoid;
+      }
+
+      header .links a {
+        color: var(--text-primary);
+      }
+    }
+
+    @page {
+      margin: 0.75in;
+    }
+  </style>
+</head>
+<body>
+  <div class="cv-container">
+    <header>
+      <div class="info">
+        <h1 id="name"></h1>
+        <div class="title" id="title"></div>
+        <div class="contact" id="contact"></div>
+      </div>
+      <nav class="links" id="links"></nav>
+    </header>
+
+    <div class="summary" id="summary"></div>
+
+    <main id="sections"></main>
+
+    <footer>
+      Generated CV
+    </footer>
+  </div>
+
+  <div class="action-menu-container">
+    <button class="menu-toggle" onclick="toggleActionMenu()" title="Actions">
+      <i class="fas fa-bars"></i>
+    </button>
+    <div class="action-menu" id="actionMenu">
+      <button onclick="openEditor()">
+        <div class="button-content">
+          <i class="fas fa-code"></i>
+          <span>Edit CV Data</span>
+        </div>
+        <span class="shortcut">⌘E</span>
+      </button>
+      <button onclick="printCV()">
+        <div class="button-content">
+          <i class="fas fa-print"></i>
+          <span>Print CV</span>
+        </div>
+        <span class="shortcut">⌘P</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="editor-panel" id="editorPanel">
+    <div class="editor-header">
+      <h2>Edit CV Data</h2>
+      <button class="close" onclick="toggleEditor()" title="Close (press ESC twice)">×</button>
+    </div>
+    <div class="editor-controls">
+      <div class="mode-toggle">
+        <button class="active" data-mode="json" onclick="setEditorMode('json')">JSON</button>
+        <button data-mode="javascript" onclick="setEditorMode('javascript')">JavaScript</button>
+      </div>
+      <div class="editor-actions">
+        <button onclick="toggleFullscreen()" title="Toggle Fullscreen (⌘\ / Ctrl+\)" style="padding: 0.5rem 0.75rem;">
+          <i class="fas fa-expand" id="fullscreenIcon"></i>
+        </button>
+        <button onclick="resetData()">Reset</button>
+        <button class="primary" onclick="applyChanges()" title="Apply Changes (⌘S / Ctrl+S)">Apply</button>
+      </div>
+    </div>
+    <div class="editor-container" id="editorContainer"></div>
+    <div class="editor-error" id="editorError"></div>
+  </div>
+
+  <script type="module">
+    import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
+
+    // Initialize markdown-it
+    const md = window.markdownit({
+      html: false,
+      breaks: false,
+      linkify: true
+    });
+
+    function parseMarkdown(text) {
+      if (!text) return '';
+      // Remove wrapping <p> tags for inline rendering
+      return md.renderInline(text);
+    }
+
+    // Define Zod schema for CV data validation
+    const LinkSchema = z.object({
+      name: z.string(),
+      url: z.string().url(),
+      icon: z.string().optional()
+    });
+
+    const PersonalSchema = z.object({
+      name: z.string().min(1, "Name is required"),
+      title: z.string().optional(),
+      email: z.string().email("Invalid email address"),
+      phone: z.string().min(1, "Phone is required"),
+      location: z.string().min(1, "Location is required"),
+      links: z.array(LinkSchema).optional()
+    });
+
+    const SectionItemSchema = z.object({
+      title: z.string().min(1, "Item title is required"),
+      subtitle: z.string().optional(),
+      period: z.object({
+        start: z.string().optional(),
+        end: z.string().optional()
+      }).optional(),
+      location: z.string().optional(),
+      content: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional()
+    });
+
+    const SectionSchema = z.object({
+      id: z.string().min(1, "Section ID is required"),
+      heading: z.string().min(1, "Section heading is required"),
+      items: z.array(SectionItemSchema).min(1, "Section must have at least one item")
+    });
+
+    const CVDataSchema = z.object({
+      personal: PersonalSchema,
+      summary: z.string().optional(),
+      sections: z.array(SectionSchema).min(1, "CV must have at least one section")
+    });
+
+    // CV Data
+    const cvData = {
+      personal: {
+        name: 'Jane Anderson',
+        title: 'Senior Software Engineer',
+        email: 'jane.anderson@email.com',
+        phone: '+1 (555) 123-4567',
+        location: 'San Francisco, CA',
+        links: [
+          { name: 'GitHub', url: 'https://github.com/janeanderson', icon: 'fab fa-github' },
+          { name: 'LinkedIn', url: 'https://linkedin.com/in/janeanderson', icon: 'fab fa-linkedin' },
+          { name: 'Portfolio', url: 'https://janeanderson.dev', icon: 'fas fa-globe' }
+        ]
+      },
+      summary: 'Experienced software engineer with **8+ years** building scalable web applications. Specialized in *frontend architecture* and developer experience. Led teams of 5-10 engineers across multiple product launches.',
+      sections: [
+        {
+          id: 'experience',
+          heading: 'Work Experience',
+          items: [
+            {
+              title: 'TechCorp Inc.',
+              subtitle: 'Senior Software Engineer',
+              period: { start: 'Jan 2021', end: 'Present' },
+              location: 'San Francisco, CA',
+              content: [
+                'Led migration from **React 16** to **React 18**, improving render performance by 40%',
+                'Architected component library used by *12 product teams*',
+                'Mentored 5 junior engineers and conducted technical interviews',
+                'Implemented CI/CD pipeline reducing deployment time from 45min to `8min`'
+              ]
+            },
+            {
+              title: 'StartupXYZ',
+              subtitle: 'Frontend Engineer',
+              period: { start: 'Mar 2018', end: 'Dec 2020' },
+              location: 'Remote',
+              content: [
+                'Built responsive dashboard application serving **50K+ daily active users**',
+                'Reduced initial bundle size by 60% through *code splitting* and lazy loading',
+                'Collaborated with designers to implement design system in `Figma` and `React`'
+              ]
+            },
+            {
+              title: 'WebDev Agency',
+              subtitle: 'Junior Developer',
+              period: { start: 'Jun 2016', end: 'Feb 2018' },
+              location: 'New York, NY',
+              content: [
+                'Developed client websites using HTML, CSS, JavaScript, and WordPress',
+                'Improved site performance and SEO rankings for 15+ client projects'
+              ]
+            }
+          ]
+        },
+        {
+          id: 'education',
+          heading: 'Education',
+          items: [
+            {
+              title: 'University of California, Berkeley',
+              subtitle: 'Bachelor of Science in Computer Science',
+              period: { start: '2012', end: '2016' },
+              location: 'Berkeley, CA',
+              content: [
+                'GPA: 3.8/4.0',
+                'Relevant coursework: Data Structures, Algorithms, Web Development, Databases'
+              ]
+            }
+          ]
+        },
+        {
+          id: 'skills',
+          heading: 'Technical Skills',
+          items: [
+            {
+              title: 'Languages & Frameworks',
+              tags: ['JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js', 'Python', 'HTML/CSS']
+            },
+            {
+              title: 'Tools & Technologies',
+              tags: ['Git', 'Docker', 'AWS', 'PostgreSQL', 'Redis', 'GraphQL', 'REST APIs']
+            },
+            {
+              title: 'Practices',
+              tags: ['Agile', 'Test-Driven Development', 'CI/CD', 'Code Review', 'Technical Documentation']
+            }
+          ]
+        },
+        {
+          id: 'certifications',
+          heading: 'Certifications',
+          items: [
+            {
+              title: 'AWS Certified Solutions Architect',
+              subtitle: 'Amazon Web Services',
+              period: { start: '2022' }
+            },
+            {
+              title: 'Professional Scrum Master I',
+              subtitle: 'Scrum.org',
+              period: { start: '2020' }
+            }
+          ]
+        }
+      ]
+    };
+
+    // Render Functions
+    function renderHeader(data) {
+      document.getElementById('name').textContent = data.name;
+
+      const titleEl = document.getElementById('title');
+      if (data.title) {
+        titleEl.textContent = data.title;
+        titleEl.style.display = 'block';
+      } else {
+        titleEl.style.display = 'none';
+      }
+
+      const contactEl = document.getElementById('contact');
+      contactEl.innerHTML = `
+        <div class="item"><i class="fas fa-envelope"></i> ${data.email}</div>
+        <div class="item"><i class="fas fa-phone"></i> ${data.phone}</div>
+        <div class="item"><i class="fas fa-location-dot"></i> ${data.location}</div>
+      `;
+
+      const linksEl = document.getElementById('links');
+      if (data.links && data.links.length > 0) {
+        linksEl.innerHTML = data.links.map(link => {
+          const icon = link.icon
+            ? `<i class="${link.icon}"></i>`
+            : '<i class="fas fa-link"></i>';
+          return `<a href="${link.url}" target="_blank">${icon} ${link.name}</a>`;
+        }).join('');
+        linksEl.style.display = 'flex';
+      } else {
+        linksEl.style.display = 'none';
+      }
+    }
+
+    function renderSummary(summary) {
+      const summaryEl = document.getElementById('summary');
+      if (summary) {
+        summaryEl.innerHTML = parseMarkdown(summary);
+        summaryEl.style.display = 'block';
+      } else {
+        summaryEl.style.display = 'none';
+      }
+    }
+
+    function renderSection(section) {
+      const sectionEl = document.createElement('section');
+      sectionEl.id = section.id;
+
+      const heading = document.createElement('h2');
+      heading.textContent = section.heading;
+      sectionEl.appendChild(heading);
+
+      section.items.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'item';
+
+        // Header with title and period
+        const headerEl = document.createElement('div');
+        headerEl.className = 'header';
+
+        const titleEl = document.createElement('h3');
+        titleEl.textContent = item.title;
+        headerEl.appendChild(titleEl);
+
+        if (item.period && (item.period.start || item.period.end)) {
+          const periodEl = document.createElement('time');
+          periodEl.className = 'period';
+          const start = item.period.start || '';
+          const end = item.period.end || 'Present';
+          periodEl.textContent = start ? `${start} - ${end}` : end;
+          headerEl.appendChild(periodEl);
+        }
+
+        itemEl.appendChild(headerEl);
+
+        // Meta (subtitle and location)
+        if (item.subtitle || item.location) {
+          const metaEl = document.createElement('div');
+          metaEl.className = 'meta';
+
+          if (item.subtitle) {
+            const subtitleEl = document.createElement('div');
+            subtitleEl.className = 'subtitle';
+            subtitleEl.textContent = item.subtitle;
+            metaEl.appendChild(subtitleEl);
+          }
+
+          if (item.location) {
+            const locationEl = document.createElement('div');
+            locationEl.className = 'location';
+            locationEl.textContent = item.location;
+            metaEl.appendChild(locationEl);
+          }
+
+          itemEl.appendChild(metaEl);
+        }
+
+        // Content
+        if (item.content && item.content.length > 0) {
+          const contentEl = document.createElement('div');
+          contentEl.className = 'content';
+
+          if (item.content.length === 1) {
+            const p = document.createElement('p');
+            p.innerHTML = parseMarkdown(item.content[0]);
+            contentEl.appendChild(p);
+          } else {
+            const ul = document.createElement('ul');
+            item.content.forEach(point => {
+              const li = document.createElement('li');
+              li.innerHTML = parseMarkdown(point);
+              ul.appendChild(li);
+            });
+            contentEl.appendChild(ul);
+          }
+
+          itemEl.appendChild(contentEl);
+        }
+
+        // Tags
+        if (item.tags && item.tags.length > 0) {
+          const tagsEl = document.createElement('div');
+          tagsEl.className = 'tags';
+          item.tags.forEach(tag => {
+            const tagEl = document.createElement('span');
+            tagEl.className = 'tag';
+            tagEl.textContent = tag;
+            tagsEl.appendChild(tagEl);
+          });
+          itemEl.appendChild(tagsEl);
+        }
+
+        sectionEl.appendChild(itemEl);
+      });
+
+      return sectionEl;
+    }
+
+    function renderCV(data) {
+      renderHeader(data.personal);
+      renderSummary(data.summary);
+
+      const sectionsContainer = document.getElementById('sections');
+      sectionsContainer.innerHTML = '';
+      data.sections.forEach(section => {
+        sectionsContainer.appendChild(renderSection(section));
+      });
+    }
+
+    // Initialize
+    renderCV(cvData);
+
+    // Editor Management
+    let editor;
+    let editorMode = 'json';
+    const STORAGE_CODE_KEY = 'cv-data-code';
+    const STORAGE_RESULT_KEY = 'cv-data-result';
+    const STORAGE_MODE_KEY = 'cv-editor-mode';
+
+    // Load saved data from localStorage
+    function loadSavedData() {
+      const savedCode = localStorage.getItem(STORAGE_CODE_KEY);
+      const savedResult = localStorage.getItem(STORAGE_RESULT_KEY);
+      const savedMode = localStorage.getItem(STORAGE_MODE_KEY);
+
+      if (savedMode) {
+        editorMode = savedMode;
+      }
+
+      // Always use the saved result for rendering (if available)
+      let resultData = null;
+      if (savedResult) {
+        try {
+          resultData = JSON.parse(savedResult);
+        } catch (e) {
+          console.error('Failed to parse saved result:', e);
+        }
+      }
+
+      return {
+        code: savedCode,
+        result: resultData
+      };
+    }
+
+    // Initialize with saved data if available
+    const savedData = loadSavedData();
+    if (savedData.result) {
+      renderCV(savedData.result);
+    }
+
+    // Initialize Monaco Editor
+    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      let initialValue;
+
+      if (savedData.code) {
+        // Use saved code
+        initialValue = savedData.code;
+      } else {
+        // Generate default code based on mode
+        const dataToUse = savedData.result || cvData;
+        initialValue = editorMode === 'json'
+          ? JSON.stringify(dataToUse, null, 4)
+          : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
+      }
+
+      editor = monaco.editor.create(document.getElementById('editorContainer'), {
+        value: initialValue,
+        language: editorMode,
+        theme: 'vs',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 13,
+        lineNumbers: 'on',
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        tabSize: 4,
+        insertSpaces: true
+      });
+
+      // Update mode toggle UI
+      updateModeToggle();
+    });
+
+    function toggleEditor() {
+      const panel = document.getElementById('editorPanel');
+      const isOpen = panel.classList.contains('open');
+
+      // If closing the editor and it's in fullscreen, exit fullscreen first
+      if (isOpen && panel.classList.contains('fullscreen')) {
+        toggleFullscreen();
+      }
+
+      panel.classList.toggle('open');
+    }
+
+    function toggleActionMenu() {
+      const menu = document.getElementById('actionMenu');
+      menu.classList.toggle('show');
+    }
+
+    function openEditor() {
+      toggleActionMenu(); // Close menu
+      if (!document.getElementById('editorPanel').classList.contains('open')) {
+        toggleEditor(); // Open editor
+      }
+    }
+
+    function printCV() {
+      toggleActionMenu(); // Close menu
+      window.print();
+    }
+
+    function toggleFullscreen() {
+      const panel = document.getElementById('editorPanel');
+      const icon = document.getElementById('fullscreenIcon');
+      panel.classList.toggle('fullscreen');
+
+      // Update icon
+      if (panel.classList.contains('fullscreen')) {
+        icon.className = 'fas fa-compress';
+      } else {
+        icon.className = 'fas fa-expand';
+      }
+    }
+
+    function setEditorMode(mode) {
+      if (!editor) return;
+
+      const previousMode = editorMode;
+      editorMode = mode;
+      localStorage.setItem(STORAGE_MODE_KEY, mode);
+
+      const currentValue = editor.getValue();
+      let newValue;
+
+      try {
+        if (mode === 'json') {
+          // Converting from JS to JSON
+          if (previousMode === 'javascript') {
+            const fn = new Function(currentValue);
+            const data = fn();
+            newValue = JSON.stringify(data, null, 4);
+          } else {
+            newValue = currentValue;
+          }
+        } else {
+          // Converting from JSON to JS
+          if (previousMode === 'json') {
+            const data = JSON.parse(currentValue);
+            newValue = `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(data, null, 4)};`;
+          } else {
+            newValue = currentValue;
+          }
+        }
+
+        monaco.editor.setModelLanguage(editor.getModel(), mode);
+        editor.setValue(newValue);
+
+        // Save the converted code
+        localStorage.setItem(STORAGE_CODE_KEY, newValue);
+
+        updateModeToggle();
+        hideError();
+      } catch (e) {
+        showError(`Cannot convert to ${mode.toUpperCase()}: ${e.message}`);
+        editorMode = previousMode; // Revert on error
+      }
+    }
+
+    function updateModeToggle() {
+      document.querySelectorAll('.mode-toggle button').forEach(btn => {
+        if (btn.dataset.mode === editorMode) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
+
+    function applyChanges() {
+      if (!editor) return;
+
+      const code = editor.getValue();
+      hideError();
+
+      try {
+        let data;
+
+        if (editorMode === 'json') {
+          data = JSON.parse(code);
+        } else {
+          const fn = new Function(code);
+          data = fn();
+        }
+
+        // Validate with Zod
+        const result = CVDataSchema.safeParse(data);
+
+        if (!result.success) {
+          // Format Zod errors for display
+          const errors = result.error.issues.map(issue =>
+            `${issue.path.join('.')}: ${issue.message}`
+          ).join('\n');
+          throw new Error(`Validation failed:\n${errors}`);
+        }
+
+        // Save both the code and the result to localStorage
+        localStorage.setItem(STORAGE_CODE_KEY, code);
+        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(result.data));
+
+        // Re-render CV
+        renderCV(result.data);
+
+        // Show success feedback (optional - could add visual feedback here)
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    function resetData() {
+      if (!editor) return;
+
+      if (confirm('Reset to default data? This will clear your saved changes.')) {
+        localStorage.removeItem(STORAGE_CODE_KEY);
+        localStorage.removeItem(STORAGE_RESULT_KEY);
+
+        const defaultValue = editorMode === 'json'
+          ? JSON.stringify(cvData, null, 4)
+          : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(cvData, null, 4)};`;
+
+        editor.setValue(defaultValue);
+        renderCV(cvData);
+        hideError();
+      }
+    }
+
+    function showError(message) {
+      const errorEl = document.getElementById('editorError');
+      errorEl.textContent = message;
+      errorEl.classList.add('show');
+    }
+
+    function hideError() {
+      const errorEl = document.getElementById('editorError');
+      errorEl.textContent = '';
+      errorEl.classList.remove('show');
+    }
+
+    // Expose functions to window for onclick handlers
+    window.toggleEditor = toggleEditor;
+    window.toggleActionMenu = toggleActionMenu;
+    window.openEditor = openEditor;
+    window.printCV = printCV;
+    window.toggleFullscreen = toggleFullscreen;
+    window.setEditorMode = setEditorMode;
+    window.applyChanges = applyChanges;
+    window.resetData = resetData;
+
+    // Keyboard shortcuts
+    let lastEscapeTime = 0;
+
+    document.addEventListener('keydown', function(e) {
+      const panel = document.getElementById('editorPanel');
+      const menu = document.getElementById('actionMenu');
+      const isEditorOpen = panel.classList.contains('open');
+      const isMenuOpen = menu.classList.contains('show');
+
+      // CMD+S / CTRL+S to save (only when editor is open)
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        if (isEditorOpen) {
+          e.preventDefault();
+          applyChanges();
+        }
+      }
+
+      // CMD+E / CTRL+E to open editor
+      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        e.preventDefault();
+        if (isMenuOpen) {
+          toggleActionMenu(); // Close menu if open
+        }
+        if (!isEditorOpen) {
+          toggleEditor();
+        }
+      }
+
+      // CMD+P / CTRL+P to print (override browser default)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+        e.preventDefault();
+        window.print();
+      }
+
+      // CMD+\ / CTRL+\ to toggle fullscreen (only when editor is open)
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\' && isEditorOpen) {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+
+      // ESC to close menu
+      if (e.key === 'Escape' && isMenuOpen) {
+        toggleActionMenu();
+        return;
+      }
+
+      // Double Escape within 1 second to close editor
+      if (e.key === 'Escape' && isEditorOpen) {
+        const now = Date.now();
+        if (now - lastEscapeTime < 1000) {
+          toggleEditor();
+          lastEscapeTime = 0;
+        } else {
+          lastEscapeTime = now;
+        }
+      }
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', function(e) {
+      const menu = document.getElementById('actionMenu');
+      const container = document.querySelector('.action-menu-container');
+
+      if (menu.classList.contains('show') && !container.contains(e.target)) {
+        toggleActionMenu();
+      }
+    });
+  </script>
+</body>
+</html>
