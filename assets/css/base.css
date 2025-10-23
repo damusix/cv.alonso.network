@@ -1,0 +1,47 @@
+/* Reset and Base */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --text-primary: #1a1a1a;
+    --text-secondary: #4a4a4a;
+    --text-muted: #6a6a6a;
+    --border-color: #e0e0e0;
+    --accent-color: #2563eb;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: #fafafa;
+    padding: var(--spacing-xl);
+}
+
+.cv-container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
+    padding: var(--spacing-xl);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Markdown Support */
+
+strong { font-weight: 600; }
+em { font-style: italic; }
+code {
+    background: #f3f4f6;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.1875rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875em;
+}

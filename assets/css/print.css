@@ -1,0 +1,40 @@
+/* Print Styles */
+
+@media print {
+    .editor-toggle,
+    .editor-panel,
+    .action-menu-container {
+        display: none !important;
+    }
+
+    body {
+        background: white;
+        padding: 0;
+    }
+
+    .cv-container {
+        max-width: none;
+        box-shadow: none;
+        padding: 0;
+    }
+
+    header {
+        page-break-after: avoid;
+    }
+
+    main section {
+        page-break-inside: avoid;
+    }
+
+    main section .item {
+        page-break-inside: avoid;
+    }
+
+    header .links a {
+        color: var(--text-primary);
+    }
+}
+
+@page {
+    margin: 0.75in;
+}
