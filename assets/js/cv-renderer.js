@@ -4,6 +4,9 @@ import { parseMarkdown } from './markdown.js';
 
 export function renderHeader(data) {
     document.getElementById('name').textContent = data.name;
+    const title = [data.name ,'CV', (new Date().toISOString().split('T')[0])];
+
+    document.title = title.join('-').replace(' ', '-').toLowerCase();
 
     const titleEl = document.getElementById('title');
     if (data.title) {
