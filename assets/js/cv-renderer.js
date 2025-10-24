@@ -86,7 +86,7 @@ export function renderSection(section) {
             if (item.subtitle) {
                 const subtitleEl = document.createElement('div');
                 subtitleEl.className = 'subtitle';
-                subtitleEl.textContent = item.subtitle;
+                subtitleEl.innerHTML = parseMarkdown(item.subtitle);
                 metaEl.appendChild(subtitleEl);
             }
 
