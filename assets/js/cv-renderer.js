@@ -2,11 +2,14 @@
 
 import { parseMarkdown } from './markdown.js';
 
+export function getDocumentTitle(data) {
+    const title = [data.name ,'CV', (new Date().toISOString().split('T')[0])];
+    return title.join('-').replace(' ', '-').toLowerCase();
+}
+
 export function renderHeader(data) {
     document.getElementById('name').textContent = data.name;
-    const title = [data.name ,'CV', (new Date().toISOString().split('T')[0])];
-
-    document.title = title.join('-').replace(' ', '-').toLowerCase();
+    document.title = getDocumentTitle(data);
 
     const titleEl = document.getElementById('title');
     if (data.title) {

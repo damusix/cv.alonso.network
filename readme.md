@@ -1,7 +1,7 @@
 # CV Generator
 
 
-Create and edit your CVs using JSON or JavaScript. Style it if you want. Print it, save it as PDF, and send it to your recruiter.
+Create and edit your CVs using JavaScript. Style it if you want. Print it, save it as PDF, and send it to your recruiter.
 
 ![Preview](screenshot.png)
 
@@ -10,46 +10,13 @@ Create and edit your CVs using JSON or JavaScript. Style it if you want. Print i
 ## How to Use
 
 
-Press `⌘E` / `Ctrl+E` to open the editor. Choose between **JSON**, **JavaScript**, or **Styles** mode. Make your changes and press `⌘S` / `Ctrl+S` to apply. Press `⌘P` / `Ctrl+P` to print or save as PDF.
+The application features a split-pane layout with your CV preview on the left and the editor on the right. You can resize the divider between the panes by dragging it. Choose between **JavaScript** or **Styles** mode using the tabs at the top of the editor. Make your changes and press `⌘S` / `Ctrl+S` to apply. Press `⌘P` / `Ctrl+P` to print or save as PDF.
+
+**Fullscreen Mode**: Press `⌘\` / `Ctrl+\` to toggle fullscreen view. The shortcut is context-aware: when the editor is focused, it fullscreens the editor pane; otherwise, it fullscreens the CV preview pane.
+
+On mobile devices, press `⌘E` / `Ctrl+E` to toggle the editor overlay.
 
 ### Editor Modes
-
-#### JSON Mode
-
-Edit your CV data directly as JSON:
-
-    {
-      "personal": {
-        "name": "Your Name",
-        "title": "Your Title",
-        "email": "email@example.com",
-        "phone": "+1234567890",
-        "location": "City, Country",
-        "links": [
-          { "name": "GitHub", "url": "https://github.com/username", "icon": "fab fa-github" }
-        ]
-      },
-      "summary": "Brief professional summary with **markdown** support",
-      "sections": [
-        {
-          "id": "experience",
-          "heading": "Experience",
-          "items": [
-            {
-              "title": "Job Title",
-              "subtitle": "Company Name",
-              "period": { "start": "2020", "end": "Present" },
-              "location": "City, Country",
-              "content": [
-                "Achievement or responsibility with *markdown*",
-                "Another bullet point"
-              ],
-              "tags": ["JavaScript", "Node.js"]
-            }
-          ]
-        }
-      ]
-    }
 
 #### JavaScript Mode
 
@@ -161,6 +128,10 @@ Extend validation in [validation.js](assets/js/validation.js) by modifying the Z
 ## Features
 
 
+### Split-Pane Layout & Fullscreen
+
+Desktop view features a resizable split-pane layout. Drag the divider to adjust pane sizes (saved to localStorage). Toggle fullscreen mode with `⌘\` / `Ctrl+\` - context-aware to fullscreen either the editor or CV preview based on focus. Mobile displays as an overlay editor.
+
 ### Markdown Support
 
 Use markdown syntax in `summary` and `content` fields: `**bold**`, `*italic*`, `` `code` ``, `[links](url)`
@@ -177,7 +148,7 @@ Add icons to links using Font Awesome classes. Browse icons at [fontawesome.com]
 
 ### Auto-save & Export
 
-Changes auto-save to localStorage (including drafts and cursor position per mode). Export to `.cvml` files with tagged sections: `[cv-data json]` or `[cv-data js]` for data, `[cv-styles]` for CSS.
+Changes auto-save to localStorage (including drafts and cursor position per mode). Export to `.cvml` files with tagged sections: `[cv-data js]` for data, `[cv-styles]` for CSS.
 
 ### Print Optimization
 
@@ -190,13 +161,13 @@ Print-optimized layout with proper page breaks, 0.75in margins, and clean stylin
 
 | Shortcut | Action |
 |----------|--------|
-| `⌘E` / `Ctrl+E` | Open editor |
+| `⌘E` / `Ctrl+E` | Toggle editor (mobile only) |
 | `⌘P` / `Ctrl+P` | Print CV |
-| `⌘S` / `Ctrl+S` | Apply changes |
-| `⌘\` / `Ctrl+\` | Toggle fullscreen |
-| `?` | Show help |
+| `⌘S` / `Ctrl+S` | Apply changes (when editor is focused) |
+| `⌘\` / `Ctrl+\` | Toggle fullscreen (context-aware: editor pane when editor is focused, CV pane otherwise) |
+| `?` | Show help (when not typing in editor) |
 | `ESC` | Close menu |
-| `ESC ESC` (within 1s) | Close editor |
+| `ESC ESC` (within 1s) | Close editor (mobile only) |
 
 ---
 
@@ -212,9 +183,11 @@ Single-page application with modular JavaScript architecture:
     │   ├── css/
     │   │   ├── base.css          # CSS reset, tokens, typography
     │   │   ├── cv.css            # CV layout and styling
-    │   │   ├── editor.css        # Editor panel styling
+    │   │   ├── editor.css        # VSCode-style editor panel
+    │   │   ├── split-pane.css    # Split-pane layout system
     │   │   ├── action-menu.css   # Floating action menu
     │   │   ├── modal.css         # Modal dialog styling
+    │   │   ├── toast.css         # Toast notification styling
     │   │   └── print.css         # Print-specific styles
     │   └── js/
     │       ├── main.js           # Entry point, initialization
@@ -223,13 +196,16 @@ Single-page application with modular JavaScript architecture:
     │       ├── storage.js        # localStorage persistence
     │       ├── cv-renderer.js    # CV rendering functions
     │       ├── editor.js         # Monaco editor setup
+    │       ├── split-pane.js     # Split-pane layout management
+    │       ├── observable.js     # Event system using LogosDX Observer
     │       ├── styles.js         # Custom styles management
     │       ├── exports.js        # Import/export functionality
     │       ├── action-menu.js    # Action menu behavior
     │       ├── modal.js          # Help modal management
+    │       ├── toast.js          # Toast notification system
     │       ├── keyboard.js       # Keyboard shortcuts
     │       ├── markdown.js       # Markdown rendering
-    │       └── ui-utils.js       # UI utility functions
+    │       └── ui-utils.js       # UI utility functions (fullscreen, etc.)
 
 ### Core Technologies
 
@@ -242,13 +218,14 @@ Single-page application with modular JavaScript architecture:
 
 localStorage keys:
 
-- `cv-data-code` - Raw editor content (JSON or JavaScript)
+- `cv-data-code` - Raw editor content (JavaScript)
 - `cv-data-result` - Evaluated JSON result from code
-- `cv-editor-mode` - Current editor mode ('json' | 'javascript' | 'css')
+- `cv-editor-mode` - Current editor mode ('javascript' | 'css')
 - `cv-custom-styles` - Custom CSS styles
 - `cv-editor-state` - Editor UI state (fullscreen, etc.)
 - `cv-editor-cursor-{mode}` - Cursor position per mode
 - `cv-editor-draft-{mode}` - Draft content per mode
+- `cv-split-pane-sizes` - Saved pane widths for desktop layout
 
 ### Validation
 
@@ -271,9 +248,9 @@ Zod schemas enforce:
 
 **On Apply Changes:**
 
-1. Parse code based on mode (JSON.parse or Function evaluation)
-2. Validate with Zod schema
-3. Render markdown with markdown-it
+1. Parse code based on mode (Function evaluation for JavaScript, direct CSS for Styles)
+2. Validate with Zod schema (for JavaScript mode)
+3. Render markdown with markdown-it (for CV content)
 4. Build DOM structure
 5. Save code and result to localStorage
 6. Clear draft (since changes are applied)

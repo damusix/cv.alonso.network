@@ -7,8 +7,10 @@ import { initializeActionMenu, toggleActionMenu, openEditor, printCV } from './a
 import { initializeKeyboardShortcuts } from './keyboard.js';
 import { toggleFullscreen } from './ui-utils.js';
 import { loadAndApplyStyles } from './styles.js';
-import { initializeModal, showHelpModal, showPromptModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js';
+import { initializeModal, showHelpModal, showPromptModal, showPrivacyModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js';
 import { exportCV, importCV } from './exports.js';
+import { initializeSplitPane, restoreEditorPaneState } from './split-pane.js';
+import { initializeToasts, notify } from './toast.js';
 
 // Async initialization
 (async function() {
@@ -32,6 +34,15 @@ import { exportCV, importCV } from './exports.js';
     // Initialize modal
     initializeModal();
 
+    // Initialize split pane
+    initializeSplitPane();
+
+    // Restore editor pane state
+    restoreEditorPaneState();
+
+    // Initialize toast notifications
+    initializeToasts();
+
     // Show help modal on first visit
     if (isFirstVisit()) {
         showHelpModal();
@@ -49,8 +60,10 @@ import { exportCV, importCV } from './exports.js';
     window.resetData = resetData;
     window.showHelpModal = showHelpModal;
     window.showPromptModal = showPromptModal;
+    window.showPrivacyModal = showPrivacyModal;
     window.closeModal = closeModal;
     window.copyModalMarkdown = copyModalMarkdown;
     window.exportCV = exportCV;
     window.importCV = importCV;
+    window.notify = notify;
 })();

@@ -10,48 +10,7 @@ If you need more information from me, please ask clarifying questions about my w
 ## What I Need From You
 
 
-Generate my CV data in **one of two formats**: JSON or JavaScript.
-
-### Option 1: JSON Format
-
-Provide a valid JSON object following this structure:
-
-    {
-      "personal": {
-        "name": "Full Name",
-        "title": "Professional Title",
-        "email": "email@example.com",
-        "phone": "+1234567890",
-        "location": "City, Country",
-        "links": [
-          { "name": "GitHub", "url": "https://github.com/username", "icon": "fab fa-github" },
-          { "name": "LinkedIn", "url": "https://linkedin.com/in/username", "icon": "fab fa-linkedin" }
-        ]
-      },
-      "summary": "Professional summary with **markdown** support. Highlight key achievements and expertise.",
-      "sections": [
-        {
-          "id": "experience",
-          "heading": "Experience",
-          "items": [
-            {
-              "title": "Job Title",
-              "subtitle": "Company Name",
-              "period": { "start": "YYYY-MM", "end": "Present" },
-              "location": "City, Country",
-              "content": [
-                "Key achievement or responsibility with quantifiable results",
-                "Another accomplishment using *markdown* for emphasis",
-                "Technical contribution with `code` formatting"
-              ],
-              "tags": ["JavaScript", "React", "Node.js"]
-            }
-          ]
-        }
-      ]
-    }
-
-### Option 2: JavaScript Format
+Generate my CV data in **JavaScript format**.
 
 Provide JavaScript code that returns my CV data object. This is useful for dynamic content like calculating years of experience:
 
@@ -183,33 +142,38 @@ Browse all icons at [fontawesome.com/icons](https://fontawesome.com/icons)
 ## Complete Example
 
 
-Here's what a full CV data structure looks like in JSON format:
+Here's what a full CV data structure looks like in JavaScript format:
 
-    {
-      "personal": {
-        "name": "Jane Anderson",
-        "title": "Senior Software Engineer",
-        "email": "jane.anderson@email.com",
-        "phone": "+1 (555) 123-4567",
-        "location": "San Francisco, CA",
-        "links": [
-          { "name": "GitHub", "url": "https://github.com/janeanderson", "icon": "fab fa-github" },
-          { "name": "LinkedIn", "url": "https://linkedin.com/in/janeanderson", "icon": "fab fa-linkedin" },
-          { "name": "Portfolio", "url": "https://janeanderson.dev", "icon": "fas fa-globe" }
+    // Calculate years of experience
+    const startYear = 2016;
+    const currentYear = new Date().getFullYear();
+    const yearsExp = currentYear - startYear;
+
+    return {
+      personal: {
+        name: "Jane Anderson",
+        title: "Senior Software Engineer",
+        email: "jane.anderson@email.com",
+        phone: "+1 (555) 123-4567",
+        location: "San Francisco, CA",
+        links: [
+          { name: "GitHub", url: "https://github.com/janeanderson", icon: "fab fa-github" },
+          { name: "LinkedIn", url: "https://linkedin.com/in/janeanderson", icon: "fab fa-linkedin" },
+          { name: "Portfolio", url: "https://janeanderson.dev", icon: "fas fa-globe" }
         ]
       },
-      "summary": "Experienced software engineer with **8+ years** building scalable web applications. Specialized in *frontend architecture* and developer experience. Led teams of 5-10 engineers across multiple product launches.",
-      "sections": [
+      summary: `Experienced software engineer with **${yearsExp}+ years** building scalable web applications. Specialized in *frontend architecture* and developer experience. Led teams of 5-10 engineers across multiple product launches.`,
+      sections: [
         {
-          "id": "experience",
-          "heading": "Work Experience",
-          "items": [
+          id: "experience",
+          heading: "Work Experience",
+          items: [
             {
-              "title": "TechCorp Inc.",
-              "subtitle": "Senior Software Engineer",
-              "period": { "start": "Jan 2021", "end": "Present" },
-              "location": "San Francisco, CA",
-              "content": [
+              title: "TechCorp Inc.",
+              subtitle: "Senior Software Engineer",
+              period: { start: "Jan 2021", end: "Present" },
+              location: "San Francisco, CA",
+              content: [
                 "Led migration from **React 16** to **React 18**, improving render performance by 40%",
                 "Architected component library used by *12 product teams*",
                 "Mentored 5 junior engineers and conducted technical interviews",
@@ -217,22 +181,22 @@ Here's what a full CV data structure looks like in JSON format:
               ]
             },
             {
-              "title": "StartupXYZ",
-              "subtitle": "Frontend Engineer",
-              "period": { "start": "Mar 2018", "end": "Dec 2020" },
-              "location": "Remote",
-              "content": [
+              title: "StartupXYZ",
+              subtitle: "Frontend Engineer",
+              period: { start: "Mar 2018", end: "Dec 2020" },
+              location: "Remote",
+              content: [
                 "Built responsive dashboard application serving **50K+ daily active users**",
                 "Reduced initial bundle size by 60% through *code splitting* and lazy loading",
                 "Collaborated with designers to implement design system in `Figma` and `React`"
               ]
             },
             {
-              "title": "WebDev Agency",
-              "subtitle": "Junior Developer",
-              "period": { "start": "Jun 2016", "end": "Feb 2018" },
-              "location": "New York, NY",
-              "content": [
+              title: "WebDev Agency",
+              subtitle: "Junior Developer",
+              period: { start: "Jun 2016", end: "Feb 2018" },
+              location: "New York, NY",
+              content: [
                 "Developed client websites using HTML, CSS, JavaScript, and WordPress",
                 "Improved site performance and SEO rankings for 15+ client projects"
               ]
@@ -240,15 +204,15 @@ Here's what a full CV data structure looks like in JSON format:
           ]
         },
         {
-          "id": "education",
-          "heading": "Education",
-          "items": [
+          id: "education",
+          heading: "Education",
+          items: [
             {
-              "title": "University of California, Berkeley",
-              "subtitle": "Bachelor of Science in Computer Science",
-              "period": { "start": "2012", "end": "2016" },
-              "location": "Berkeley, CA",
-              "content": [
+              title: "University of California, Berkeley",
+              subtitle: "Bachelor of Science in Computer Science",
+              period: { start: "2012", end: "2016" },
+              location: "Berkeley, CA",
+              content: [
                 "GPA: 3.8/4.0",
                 "Relevant coursework: Data Structures, Algorithms, Web Development, Databases"
               ]
@@ -256,41 +220,41 @@ Here's what a full CV data structure looks like in JSON format:
           ]
         },
         {
-          "id": "skills",
-          "heading": "Technical Skills",
-          "items": [
+          id: "skills",
+          heading: "Technical Skills",
+          items: [
             {
-              "title": "Languages & Frameworks",
-              "tags": ["JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Python", "HTML/CSS"]
+              title: "Languages & Frameworks",
+              tags: ["JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Python", "HTML/CSS"]
             },
             {
-              "title": "Tools & Technologies",
-              "tags": ["Git", "Docker", "AWS", "PostgreSQL", "Redis", "GraphQL", "REST APIs"]
+              title: "Tools & Technologies",
+              tags: ["Git", "Docker", "AWS", "PostgreSQL", "Redis", "GraphQL", "REST APIs"]
             },
             {
-              "title": "Practices",
-              "tags": ["Agile", "Test-Driven Development", "CI/CD", "Code Review", "Technical Documentation"]
+              title: "Practices",
+              tags: ["Agile", "Test-Driven Development", "CI/CD", "Code Review", "Technical Documentation"]
             }
           ]
         },
         {
-          "id": "certifications",
-          "heading": "Certifications",
-          "items": [
+          id: "certifications",
+          heading: "Certifications",
+          items: [
             {
-              "title": "AWS Certified Solutions Architect",
-              "subtitle": "Amazon Web Services",
-              "period": { "start": "2022" }
+              title: "AWS Certified Solutions Architect",
+              subtitle: "Amazon Web Services",
+              period: { start: "2022" }
             },
             {
-              "title": "Professional Scrum Master I",
-              "subtitle": "Scrum.org",
-              "period": { "start": "2020" }
+              title: "Professional Scrum Master I",
+              subtitle: "Scrum.org",
+              period: { start: "2020" }
             }
           ]
         }
       ]
-    }
+    };
 
 ---
 
@@ -304,7 +268,7 @@ Please verify:
 - All required fields are present (name, email, phone, location)
 - At least one section with at least one item
 - JavaScript code ends with `return` statement
-- No syntax errors in JSON/JavaScript
+- No syntax errors in JavaScript
 
 ---
 

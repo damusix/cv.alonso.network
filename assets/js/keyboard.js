@@ -11,18 +11,22 @@ export function initializeKeyboardShortcuts() {
     document.addEventListener('keydown', function(e) {
         const panel = document.getElementById('editorPanel');
         const menu = document.getElementById('actionMenu');
+        const editorContainer = document.getElementById('editorContainer');
         const isEditorOpen = panel.classList.contains('open');
         const isMenuOpen = menu.classList.contains('show');
 
-        // CMD+S / CTRL+S to save (only when editor is open)
+        // Check if Monaco editor is focused
+        const isEditorFocused = editorContainer && editorContainer.contains(document.activeElement);
+
+        // CMD+S / CTRL+S to save (only when Monaco editor is focused)
         if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-            if (isEditorOpen) {
+            if (isEditorFocused) {
                 e.preventDefault();
                 applyChanges();
             }
         }
 
-        // CMD+E / CTRL+E to open editor
+        // CMD+E / CTRL+E to open editor (mobile only)
         if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
             e.preventDefault();
             if (isMenuOpen) {
@@ -39,8 +43,8 @@ export function initializeKeyboardShortcuts() {
             window.print();
         }
 
-        // CMD+\ / CTRL+\ to toggle fullscreen (only when editor is open)
-        if ((e.metaKey || e.ctrlKey) && e.key === '\\' && isEditorOpen) {
+        // CMD+\ / CTRL+\ to toggle fullscreen
+        if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
             e.preventDefault();
             toggleFullscreen();
         }
@@ -51,7 +55,7 @@ export function initializeKeyboardShortcuts() {
             return;
         }
 
-        // Double Escape within 1 second to close editor
+        // Double Escape within 1 second to close editor (mobile only)
         if (e.key === 'Escape' && isEditorOpen) {
             const now = Date.now();
             if (now - lastEscapeTime < 1000) {
@@ -62,8 +66,8 @@ export function initializeKeyboardShortcuts() {
             }
         }
 
-        // ? to open help modal
-        if (e.key === '?' && !isEditorOpen) {
+        // ? to open help modal (only when NOT typing in editor)
+        if (e.key === '?' && !isEditorFocused) {
             e.preventDefault();
             showHelpModal();
         }

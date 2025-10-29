@@ -1,33 +1,48 @@
 // UI Utility Functions
 
-export function showError(message) {
-    const errorEl = document.getElementById('editorError');
-    errorEl.textContent = message;
-    errorEl.classList.add('show');
-    errorEl.classList.remove('success');
-}
-
-export function showSuccess(message) {
-    const errorEl = document.getElementById('editorError');
-    errorEl.textContent = message;
-    errorEl.classList.add('show', 'success');
-}
-
-export function hideError() {
-    const errorEl = document.getElementById('editorError');
-    errorEl.textContent = '';
-    errorEl.classList.remove('show', 'success');
-}
+import { emit } from './observable.js';
 
 export function toggleFullscreen() {
-    const panel = document.getElementById('editorPanel');
-    const icon = document.getElementById('fullscreenIcon');
-    panel.classList.toggle('fullscreen');
+    const container = document.querySelector('.split-view-container');
+    const fabIcon = document.getElementById('fabFullscreenIcon');
+    const editorContainer = document.getElementById('editorContainer');
 
-    // Update icon
-    if (panel.classList.contains('fullscreen')) {
-        icon.className = 'fas fa-compress';
+    // Check if Monaco editor is focused
+    const isEditorFocused = editorContainer && editorContainer.contains(document.activeElement);
+
+    // If editor is focused, fullscreen the editor pane
+    if (isEditorFocused) {
+        const wasFullscreen = container.classList.contains('fullscreen');
+        if (wasFullscreen) {
+            container.classList.remove('fullscreen');
+            if (fabIcon) fabIcon.setAttribute('class', 'fas fa-expand');
+        } else {
+            container.classList.remove('fullscreen-cv');
+            container.classList.add('fullscreen');
+            if (fabIcon) fabIcon.setAttribute('class', 'fas fa-compress');
+        }
+
+        // Emit fullscreen event
+        emit('editor:fullscreen', {
+            pane: 'editor',
+            isFullscreen: !wasFullscreen
+        });
     } else {
-        icon.className = 'fas fa-expand';
+        // Otherwise fullscreen the CV pane
+        const wasFullscreen = container.classList.contains('fullscreen-cv');
+        if (wasFullscreen) {
+            container.classList.remove('fullscreen-cv');
+            if (fabIcon) fabIcon.setAttribute('class', 'fas fa-expand');
+        } else {
+            container.classList.remove('fullscreen');
+            container.classList.add('fullscreen-cv');
+            if (fabIcon) fabIcon.setAttribute('class', 'fas fa-compress');
+        }
+
+        // Emit fullscreen event
+        emit('editor:fullscreen', {
+            pane: 'cv',
+            isFullscreen: !wasFullscreen
+        });
     }
 }

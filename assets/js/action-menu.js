@@ -1,6 +1,7 @@
 // Action Menu Controls
 
 import { toggleEditor } from './editor.js';
+import { emit } from './observable.js';
 
 export function toggleActionMenu() {
     const menu = document.getElementById('actionMenu');
@@ -16,6 +17,10 @@ export function openEditor() {
 
 export function printCV() {
     toggleActionMenu(); // Close menu
+
+    // Emit print event
+    emit('cv:print', {});
+
     window.print();
 }
 

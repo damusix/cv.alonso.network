@@ -2,10 +2,10 @@
 
 import { loadSavedData, saveCVData, saveEditorMode } from './storage.js';
 import { loadSavedStyles, saveStyles } from './storage.js';
-import { renderCV } from './cv-renderer.js';
+import { getDocumentTitle, renderCV } from './cv-renderer.js';
 import { applyStyles } from './styles.js';
 import { getEditorMode, getEditor } from './editor.js';
-import { showError, showSuccess, hideError } from './ui-utils.js';
+import { emit } from './observable.js';
 
 export function exportCV() {
     try {
@@ -17,10 +17,7 @@ export function exportCV() {
 
         // Add CV data section
         if (savedData.code) {
-            const dataHeader = mode === 'javascript' ? '[cv-data js]' : '[cv-data json]';
-            content += `${dataHeader}\n${savedData.code}\n\n`;
-        } else if (savedData.result) {
-            content += `[cv-data json]\n${JSON.stringify(savedData.result, null, 4)}\n\n`;
+            content += `[cv-data js]\n${savedData.code}\n\n`;
         }
 
         // Add styles section if exists
@@ -32,16 +29,23 @@ export function exportCV() {
         const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        const title = getDocumentTitle(savedData.result?.personal);
+
         a.href = url;
-        a.download = 'cv-export.cvml';
+        a.download = `${title}.cvml`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        hideError();
+        // Emit export event
+        emit('cv:export', { filename: `${title}.cvml`, mode });
+
     } catch (error) {
-        showError(`Export failed: ${error.message}`);
+
+        emit('cv:export:error', {
+            message: error.message
+        });
     }
 }
 
@@ -59,32 +63,21 @@ export function importCV() {
             const content = await file.text();
 
             // Parse sections using regex
-            const dataJsonMatch = content.match(/\[cv-data json\]\n([\s\S]*?)(?=\n\[|$)/);
             const dataJsMatch = content.match(/\[cv-data js\]\n([\s\S]*?)(?=\n\[|$)/);
             const stylesMatch = content.match(/\[cv-styles\]\n([\s\S]*?)$/);
 
             let cvData = null;
-            let cvMode = 'json';
+            let cvCode = null;
 
-            // Extract CV data
+            // Extract CV data (JavaScript mode only)
             if (dataJsMatch) {
-                // Try JavaScript mode first (since it can have comments)
-                const jsCode = dataJsMatch[1].trim();
-                const fn = new Function(jsCode);
+                cvCode = dataJsMatch[1].trim();
+                const fn = new Function(cvCode);
                 cvData = fn();
-                cvMode = 'javascript';
 
                 // Save to localStorage
-                saveCVData(jsCode, cvData);
+                saveCVData(cvCode, cvData);
                 saveEditorMode('javascript');
-            } else if (dataJsonMatch) {
-                const jsonCode = dataJsonMatch[1].trim();
-                cvData = JSON.parse(jsonCode);
-                cvMode = 'json';
-
-                // Save to localStorage
-                saveCVData(jsonCode, cvData);
-                saveEditorMode('json');
             }
 
             // Extract and apply styles
@@ -104,27 +97,22 @@ export function importCV() {
                     if (getEditorMode() === 'css') {
                         // If in CSS mode, just refresh when switching modes
                     } else {
-                        // Update editor with imported data
-                        const editorValue = cvMode === 'json'
-                            ? JSON.stringify(cvData, null, 4)
-                            : dataJsMatch[1].trim();
-                        editor.setValue(editorValue);
+                        // Update editor with imported JavaScript code
+                        editor.setValue(cvCode);
                     }
                 }
 
-                hideError();
-
-                // Show success message briefly
-                showSuccess('Import successful!');
-                setTimeout(() => {
-                    hideError();
-                }, 2000);
+                // Emit import event
+                emit('cv:import', { filename: file.name, mode: 'javascript' });
             } else {
                 throw new Error('No valid CV data found in file');
             }
 
         } catch (error) {
-            showError(`Import failed: ${error.message}`);
+
+            emit('cv:import:error', {
+                message: error.message
+            });
         }
     };
 

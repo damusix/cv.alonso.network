@@ -1,15 +1,17 @@
 // Editor Management
 
-import { cvData } from './config.js';
+import { cvData, defaultMessage } from './config.js';
 import { CVDataSchema } from './validation.js';
 import { loadSavedData, saveCVData, saveEditorMode, clearSavedData } from './storage.js';
 import { saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js';
 import { renderCV } from './cv-renderer.js';
-import { showError, hideError, toggleFullscreen as uiToggleFullscreen } from './ui-utils.js';
+import { toggleFullscreen } from './ui-utils.js';
 import { applyStyles, getCurrentStyles, resetStyles } from './styles.js';
+import { toggleEditorPane, isEditorPaneOpen } from './split-pane.js';
+import { emit, on } from './observable.js';
 
 let editor;
-let editorMode = 'json';
+let editorMode = 'javascript';
 let autoSaveTimeout;
 
 export function getEditor() {
@@ -20,12 +22,22 @@ export function getEditorMode() {
     return editorMode;
 }
 
+const defaultValue = () => {
+
+    const data = JSON.stringify(cvData, null, 4);
+
+    return `${defaultMessage}\n\nreturn ${data};`;
+}
+
 export async function initializeEditor() {
     const savedData = loadSavedData();
     const editorState = loadEditorState();
 
-    if (savedData.mode) {
+    // Default to javascript mode, or use saved mode if it's valid (javascript/css only)
+    if (savedData.mode && (savedData.mode === 'javascript' || savedData.mode === 'css')) {
         editorMode = savedData.mode;
+    } else {
+        editorMode = 'javascript';
     }
 
     require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
@@ -39,7 +51,7 @@ export async function initializeEditor() {
         if (draft) {
             // Use draft content
             initialValue = draft;
-            initialLanguage = editorMode === 'css' ? 'css' : editorMode;
+            initialLanguage = editorMode === 'css' ? 'css' : 'javascript';
         } else if (editorMode === 'css') {
             // CSS mode - load styles asynchronously
             initialValue = await getCurrentStyles();
@@ -48,26 +60,19 @@ export async function initializeEditor() {
             // Validate that code and result are in sync before using saved code
             // This prevents loading corrupt code from localStorage
             try {
-                let codeResult;
-                if (editorMode === 'json') {
-                    codeResult = JSON.parse(savedData.code);
-                } else {
-                    const fn = new Function(savedData.code);
-                    codeResult = fn();
-                }
+                const fn = new Function(savedData.code);
+                const codeResult = fn();
 
                 // If code executes and produces the same result, use it
                 if (JSON.stringify(codeResult) === JSON.stringify(savedData.result)) {
                     initialValue = savedData.code;
-                    initialLanguage = editorMode;
+                    initialLanguage = 'javascript';
                 } else {
                     // Code and result are out of sync - regenerate from result (source of truth)
                     console.warn('localStorage code/result mismatch detected, regenerating from result');
                     const dataToUse = savedData.result;
-                    initialValue = editorMode === 'json'
-                        ? JSON.stringify(dataToUse, null, 4)
-                        : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
-                    initialLanguage = editorMode;
+                    initialValue = defaultValue();
+                    initialLanguage = 'javascript';
                     // Fix localStorage immediately
                     localStorage.setItem('cv-data-code', initialValue);
                 }
@@ -75,24 +80,20 @@ export async function initializeEditor() {
                 // Code is invalid - regenerate from result
                 console.warn('Invalid code in localStorage, regenerating from result', e);
                 const dataToUse = savedData.result;
-                initialValue = editorMode === 'json'
-                    ? JSON.stringify(dataToUse, null, 4)
-                    : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
-                initialLanguage = editorMode;
+                initialValue = defaultValue();
+                initialLanguage = 'javascript';
                 // Fix localStorage immediately
                 localStorage.setItem('cv-data-code', initialValue);
             }
         } else if (savedData.code) {
             // No result to validate against, use saved code as-is
             initialValue = savedData.code;
-            initialLanguage = editorMode;
+            initialLanguage = 'javascript';
         } else {
-            // Generate default code based on mode
+            // Generate default code
             const dataToUse = savedData.result || cvData;
-            initialValue = editorMode === 'json'
-                ? JSON.stringify(dataToUse, null, 4)
-                : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
-            initialLanguage = editorMode;
+            initialValue = defaultValue();
+            initialLanguage = 'javascript';
         }
 
         editor = monaco.editor.create(document.getElementById('editorContainer'), {
@@ -138,20 +139,14 @@ export async function initializeEditor() {
         updateModeToggle();
         updateModeIndicators();
 
-        // Restore editor state
+        // Restore editor state (compatibility with old system)
+        // Note: split-pane now handles open state, but we keep this for fullscreen
         if (editorState) {
-            if (editorState.isOpen) {
-                const panel = document.getElementById('editorPanel');
-                panel.classList.add('open');
-                // Focus editor if it's open
-                if (editor) {
-                    editor.focus();
-                }
-            }
             if (editorState.isFullscreen) {
-                const panel = document.getElementById('editorPanel');
-                panel.classList.add('fullscreen');
-                document.getElementById('fullscreenIcon').className = 'fas fa-compress';
+                const container = document.querySelector('.split-view-container');
+                container.classList.add('fullscreen');
+                const fabIcon = document.getElementById('fabFullscreenIcon');
+                if (fabIcon) fabIcon.className = 'fas fa-compress';
             }
         }
     });
@@ -167,11 +162,9 @@ async function getCommittedValue(mode) {
         if (savedData.code) {
             return savedData.code;
         } else {
-            // Generate default code
+            // Generate default JavaScript code
             const dataToUse = savedData.result || cvData;
-            return mode === 'json'
-                ? JSON.stringify(dataToUse, null, 4)
-                : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
+            return defaultValue();
         }
     }
 }
@@ -194,43 +187,31 @@ function autoSaveDraft() {
 }
 
 function updateModeIndicators() {
-    document.querySelectorAll('.mode-toggle button').forEach(btn => {
-        const mode = btn.dataset.mode;
-        const baseName = mode === 'json' ? 'JSON' :
-                         mode === 'javascript' ? 'JavaScript' : 'Styles';
-        btn.textContent = hasDraft(mode) ? `${baseName}*` : baseName;
+    document.querySelectorAll('.editor-tab').forEach(tab => {
+        const mode = tab.dataset.mode;
+        const baseName = mode === 'javascript' ? 'JavaScript' : 'Styles';
+        const tabLabel = tab.querySelector('.tab-label');
+        if (tabLabel) {
+            tabLabel.textContent = hasDraft(mode) ? `${baseName} ●` : baseName;
+        }
     });
 }
 
 export function toggleEditor() {
-    const panel = document.getElementById('editorPanel');
-    const isOpen = panel.classList.contains('open');
+    const container = document.querySelector('.split-view-container');
 
-    // If closing the editor and it's in fullscreen, exit fullscreen first
-    if (isOpen && panel.classList.contains('fullscreen')) {
+    // If in fullscreen, exit fullscreen first
+    if (container.classList.contains('fullscreen')) {
         toggleFullscreen();
     }
 
-    panel.classList.toggle('open');
+    // Use split-pane toggle
+    toggleEditorPane();
 
-    // Save editor state
+    // Save editor state (for compatibility)
     saveEditorState({
-        isOpen: !isOpen,
-        isFullscreen: panel.classList.contains('fullscreen')
-    });
-}
-
-export function toggleFullscreen() {
-    const panel = document.getElementById('editorPanel');
-    const isFullscreen = panel.classList.contains('fullscreen');
-
-    // Call the UI utility function
-    uiToggleFullscreen();
-
-    // Save editor state
-    saveEditorState({
-        isOpen: panel.classList.contains('open'),
-        isFullscreen: !isFullscreen
+        isOpen: isEditorPaneOpen(),
+        isFullscreen: container.classList.contains('fullscreen')
     });
 }
 
@@ -265,34 +246,15 @@ export async function setEditorMode(mode) {
         } else if (mode === 'css') {
             // Switching to CSS mode - load styles asynchronously
             newValue = await getCurrentStyles();
-        } else if (previousMode === 'css') {
-            // Switching from CSS to data mode - use saved data
+        } else {
+            // Switching from CSS to JavaScript - use saved data
             const savedData = loadSavedData();
             const dataToUse = savedData.result || cvData;
-            newValue = mode === 'json'
-                ? JSON.stringify(dataToUse, null, 4)
-                : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(dataToUse, null, 4)};`;
-        } else if (mode === 'json') {
-            // Converting from JS to JSON
-            if (previousMode === 'javascript') {
-                const fn = new Function(currentValue);
-                const data = fn();
-                newValue = JSON.stringify(data, null, 4);
-            } else {
-                newValue = currentValue;
-            }
-        } else {
-            // Converting from JSON to JS
-            if (previousMode === 'json') {
-                const data = JSON.parse(currentValue);
-                newValue = `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(data, null, 4)};`;
-            } else {
-                newValue = currentValue;
-            }
+            newValue = defaultValue();
         }
 
         // Set language
-        monaco.editor.setModelLanguage(editor.getModel(), mode === 'css' ? 'css' : mode);
+        monaco.editor.setModelLanguage(editor.getModel(), mode === 'css' ? 'css' : 'javascript');
         editor.setValue(newValue);
 
         // Save the converted code (only for non-CSS modes and when not using draft)
@@ -316,19 +278,25 @@ export async function setEditorMode(mode) {
 
         updateModeToggle();
         updateModeIndicators();
-        hideError();
+
+        // Emit mode change event
+        emit('editor:mode-change', { mode, previousMode });
     } catch (e) {
-        showError(`Cannot convert to ${mode.toUpperCase()}: ${e.message}`);
+
+        emit('editor:mode-change:error',{
+            message: `Cannot convert to ${mode.toUpperCase()}: ${e.message}`
+        });
+
         editorMode = previousMode; // Revert on error
     }
 }
 
 function updateModeToggle() {
-    document.querySelectorAll('.mode-toggle button').forEach(btn => {
-        if (btn.dataset.mode === editorMode) {
-            btn.classList.add('active');
+    document.querySelectorAll('.editor-tab').forEach(tab => {
+        if (tab.dataset.mode === editorMode) {
+            tab.classList.add('active');
         } else {
-            btn.classList.remove('active');
+            tab.classList.remove('active');
         }
     });
 }
@@ -340,22 +308,15 @@ export function applyChanges() {
     clearTimeout(autoSaveTimeout);
 
     const code = editor.getValue();
-    hideError();
 
     try {
         if (editorMode === 'css') {
             // Apply CSS styles
             applyStyles(code);
         } else {
-            // Apply CV data
-            let data;
-
-            if (editorMode === 'json') {
-                data = JSON.parse(code);
-            } else {
-                const fn = new Function(code);
-                data = fn();
-            }
+            // Apply CV data (JavaScript mode)
+            const fn = new Function(code);
+            const data = fn();
 
             // Validate with Zod
             const result = CVDataSchema.safeParse(data);
@@ -368,10 +329,7 @@ export function applyChanges() {
                 throw new Error(`Validation failed:\n${errors}`);
             }
 
-            // Save both the code and the result to localStorage
             saveCVData(code, result.data);
-
-            // Re-render CV
             renderCV(result.data);
         }
 
@@ -379,9 +337,14 @@ export function applyChanges() {
         clearDraft(editorMode);
         updateModeIndicators();
 
-        // Show success feedback (optional - could add visual feedback here)
+        // Emit save event
+        emit('cv:save', { mode: editorMode });
+
     } catch (e) {
-        showError(e.message);
+
+        emit('editor:save:error', {
+            message: e.message
+        });
     }
 }
 
@@ -399,18 +362,26 @@ export async function resetData() {
         } else {
             clearSavedData();
 
-            const defaultValue = editorMode === 'json'
-                ? JSON.stringify(cvData, null, 4)
-                : `// Edit your CV data\n// Last line must be a return statement\n\nreturn ${JSON.stringify(cvData, null, 4)};`;
+            const resetValue = defaultValue();
 
-            editor.setValue(defaultValue);
+            editor.setValue(resetValue);
             renderCV(cvData);
         }
 
         // Clear draft after reset
         clearDraft(editorMode);
         updateModeIndicators();
+        applyChanges();
 
-        hideError();
+        // Emit reset event
+        emit('cv:reset', { mode: editorMode });
     }
 }
+
+// Listen for fullscreen events to save state
+on('editor:fullscreen', ({ data }) => {
+    saveEditorState({
+        isOpen: isEditorPaneOpen(),
+        isFullscreen: data.isFullscreen
+    });
+});

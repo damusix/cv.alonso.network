@@ -1,12 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- SEO Meta Tags -->
-  <title>CV Generator - Simple Online Resume Editor</title>
-  <meta name="description" content="A simple CV editor with live preview. Edit your resume data as JSON, customize styles, and export to PDF or CVML format.">
+  <title>CV Generator - Simple, FREE Online Resume Editor</title>
+  <meta name="description"
+    content="A simple, FREE CV editor with live preview. Edit your resume data as JS, customize styles, and export to PDF or CVML format.">
   <meta name="keywords" content="cv generator, resume editor, cv editor, online cv, json editor, resume builder">
   <meta name="author" content="@alonso_network">
   <meta name="robots" content="index, follow">
@@ -14,8 +16,9 @@
   <meta name="application-name" content="CV Generator">
 
   <!-- Open Graph Meta Tags -->
-  <meta property="og:title" content="CV Generator - Simple Online Resume Editor">
-  <meta property="og:description" content="A simple CV editor with live preview. Edit your resume data as JSON, customize styles, and export to PDF or CVML format.">
+  <meta property="og:title" content="CV Generator - Simple, FREE Online Resume Editor">
+  <meta property="og:description"
+    content="A simple, FREE CV editor with live preview. Edit your resume data as JS, customize styles, and export to PDF or CVML format.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://cv.alonso.network">
   <meta property="og:site_name" content="CV Generator">
@@ -25,15 +28,16 @@
   <!-- Twitter Card Meta Tags -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:creator" content="@alonso_network">
-  <meta name="twitter:title" content="CV Generator - Simple Online Resume Editor">
-  <meta name="twitter:description" content="A simple CV editor with live preview. Edit your resume data as JSON, customize styles, and export to PDF or CVML format.">
+  <meta name="twitter:title" content="CV Generator - Simple, FREE Online Resume Editor">
+  <meta name="twitter:description"
+    content="A simple, FREE CV editor with live preview. Edit your resume data as JS, customize styles, and export to PDF or CVML format.">
   <meta name="twitter:image" content="https://cv.alonso.network/social.png">
 
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-2LLW7KQ0CB"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
+    function gtag() { dataLayer.push(arguments); }
     gtag('js', new Date());
 
     gtag('config', 'G-2LLW7KQ0CB');
@@ -43,33 +47,65 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/js/all.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@logosdx/observer@2.0.4/dist/browser/bundle.js"></script>
 
   <!-- CSS Imports -->
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/cv.css">
+  <link rel="stylesheet" href="assets/css/split-pane.css">
   <link rel="stylesheet" href="assets/css/editor.css">
   <link rel="stylesheet" href="assets/css/action-menu.css">
   <link rel="stylesheet" href="assets/css/modal.css">
+  <link rel="stylesheet" href="assets/css/toast.css">
   <link rel="stylesheet" href="assets/css/print.css">
 </head>
+
 <body>
-  <div class="cv-container">
-    <header>
-      <div class="info">
-        <h1 id="name"></h1>
-        <div class="title" id="title"></div>
-        <div class="contact" id="contact"></div>
+  <div class="split-view-container">
+    <!-- CV Pane -->
+    <div class="cv-pane" id="cvPane">
+      <div class="cv-container">
+        <header>
+          <div class="info">
+            <h1 id="name"></h1>
+            <div class="title" id="title"></div>
+            <div class="contact" id="contact"></div>
+          </div>
+          <nav class="links" id="links"></nav>
+        </header>
+
+        <div class="summary" id="summary"></div>
+
+        <main id="sections"></main>
+
+        <footer>
+          CV Generator by <a href="https://github.com/damusix/cv.alonso.network" target="_blank">@damusix</a> · <a href="#" onclick="showPrivacyModal(); return false;">Privacy</a>
+        </footer>
       </div>
-      <nav class="links" id="links"></nav>
-    </header>
+    </div>
 
-    <div class="summary" id="summary"></div>
+    <!-- Resizable Divider -->
+    <div class="divider" id="divider">
+      <div class="divider-handle"></div>
+    </div>
 
-    <main id="sections"></main>
-
-    <footer>
-      CV Generator by <a href="https://github.com/damusix/cv.alonso.network" target="_blank">@damusix</a>
-    </footer>
+    <!-- Editor Pane -->
+    <div class="editor-pane" id="editorPane">
+      <div class="editor-panel" id="editorPanel">
+        <div class="editor-header">
+          <div class="editor-tabs">
+            <div class="editor-tab active" data-mode="javascript" onclick="setEditorMode('javascript')">
+              <span class="tab-label">JavaScript</span>
+            </div>
+            <div class="editor-tab" data-mode="css" onclick="setEditorMode('css')">
+              <span class="tab-label">Styles</span>
+            </div>
+          </div>
+          <button class="close mobile-only" onclick="toggleEditor()" title="Close (press ESC twice)">×</button>
+        </div>
+        <div class="editor-container" id="editorContainer"></div>
+      </div>
+    </div>
   </div>
 
   <div class="action-menu-container">
@@ -77,12 +113,44 @@
       <i class="fa-solid fa-ellipsis-vertical"></i>
     </button>
     <div class="action-menu" id="actionMenu">
-      <button onclick="openEditor()">
+      <button class="mobile-only" onclick="openEditor()">
         <div class="button-content">
           <i class="fas fa-code"></i>
-          <span>Edit CV Data</span>
+          <span>Toggle Editor</span>
         </div>
         <span class="shortcut">⌘E</span>
+      </button>
+      <button onclick="applyChanges()">
+        <div class="button-content">
+          <i class="fas fa-save"></i>
+          <span>Apply Changes</span>
+        </div>
+        <span class="shortcut">⌘S</span>
+      </button>
+      <button onclick="toggleFullscreen()">
+        <div class="button-content">
+          <i class="fas fa-expand" id="fabFullscreenIcon"></i>
+          <span>Toggle Fullscreen</span>
+        </div>
+        <span class="shortcut">⌘\</span>
+      </button>
+      <button onclick="importCV()">
+        <div class="button-content">
+          <i class="fas fa-upload"></i>
+          <span>Import CV</span>
+        </div>
+      </button>
+      <button onclick="exportCV()">
+        <div class="button-content">
+          <i class="fas fa-download"></i>
+          <span>Export CV</span>
+        </div>
+      </button>
+      <button onclick="resetData()">
+        <div class="button-content">
+          <i class="fas fa-undo"></i>
+          <span>Reset to Defaults</span>
+        </div>
       </button>
       <button onclick="printCV()">
         <div class="button-content">
@@ -107,39 +175,6 @@
     </div>
   </div>
 
-  <div class="editor-panel" id="editorPanel">
-    <div class="editor-header">
-      <h2>Edit CV Data</h2>
-      <button class="close" onclick="toggleEditor()" title="Close (press ESC twice)">×</button>
-    </div>
-    <div class="editor-controls">
-      <div class="mode-toggle">
-        <button class="active" data-mode="json" onclick="setEditorMode('json')">JSON</button>
-        <button data-mode="javascript" onclick="setEditorMode('javascript')">JavaScript</button>
-        <button data-mode="css" onclick="setEditorMode('css')">Styles</button>
-      </div>
-      <div class="editor-actions">
-        <button onclick="toggleFullscreen()" title="Toggle Fullscreen (⌘\ / Ctrl+\)">
-          <i class="fas fa-expand" id="fullscreenIcon"></i>
-        </button>
-        <button onclick="importCV()" title="Import CV (.cvml file)">
-          <i class="fas fa-upload"></i>
-        </button>
-        <button onclick="exportCV()" title="Export CV (.cvml file)">
-          <i class="fas fa-download"></i>
-        </button>
-        <button onclick="resetData()" title="Reset to defaults">
-          <i class="fas fa-undo"></i>
-        </button>
-        <button class="primary" onclick="applyChanges()" title="Apply Changes (⌘S / Ctrl+S)">
-          <i class="fas fa-save"></i>
-        </button>
-      </div>
-    </div>
-    <div class="editor-container" id="editorContainer"></div>
-    <div class="editor-error" id="editorError"></div>
-  </div>
-
   <!-- Help Modal -->
   <dialog id="helpModal">
     <header>
@@ -156,7 +191,11 @@
     </section>
   </dialog>
 
+  <!-- Toast Notifications -->
+  <section class="toasts"></section>
+
   <!-- JavaScript Module Entry Point -->
   <script type="module" src="assets/js/main.js"></script>
 </body>
+
 </html>

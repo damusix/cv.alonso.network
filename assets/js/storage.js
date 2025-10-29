@@ -3,10 +3,8 @@
 import { STORAGE_CODE_KEY, STORAGE_RESULT_KEY, STORAGE_MODE_KEY, STORAGE_STYLES_KEY } from './config.js';
 
 const EDITOR_STATE_KEY = 'cv-editor-state';
-const CURSOR_JSON_KEY = 'cv-editor-cursor-json';
 const CURSOR_JS_KEY = 'cv-editor-cursor-javascript';
 const CURSOR_CSS_KEY = 'cv-editor-cursor-css';
-const DRAFT_JSON_KEY = 'cv-editor-draft-json';
 const DRAFT_JS_KEY = 'cv-editor-draft-javascript';
 const DRAFT_CSS_KEY = 'cv-editor-draft-css';
 
@@ -80,7 +78,6 @@ export function loadEditorState() {
 
 function getDraftKey(mode) {
     const draftKeys = {
-        'json': DRAFT_JSON_KEY,
         'javascript': DRAFT_JS_KEY,
         'css': DRAFT_CSS_KEY
     };
@@ -112,7 +109,6 @@ export function hasDraft(mode) {
 }
 
 export function clearAllDrafts() {
-    localStorage.removeItem(DRAFT_JSON_KEY);
     localStorage.removeItem(DRAFT_JS_KEY);
     localStorage.removeItem(DRAFT_CSS_KEY);
 }
@@ -121,7 +117,6 @@ export function clearAllDrafts() {
 
 function getCursorKey(mode) {
     const cursorKeys = {
-        'json': CURSOR_JSON_KEY,
         'javascript': CURSOR_JS_KEY,
         'css': CURSOR_CSS_KEY
     };
@@ -158,7 +153,6 @@ export function clearCursorPosition(mode) {
 }
 
 export function clearAllCursorPositions() {
-    localStorage.removeItem(CURSOR_JSON_KEY);
     localStorage.removeItem(CURSOR_JS_KEY);
     localStorage.removeItem(CURSOR_CSS_KEY);
 }

@@ -23,14 +23,13 @@ body {
     line-height: 1.6;
     color: var(--text-primary);
     background: #fafafa;
-    padding: var(--spacing-xl);
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
 }
 
 .cv-container {
-    max-width: 900px;
-    margin: 0 auto;
     background: white;
-    padding: var(--spacing-xl);
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
@@ -45,7 +44,10 @@ code {
     font-family: 'Courier New', monospace;
     font-size: 0.875em;
 }
+
 a {
     color: var(--accent-color);
     text-decoration: none;
 }
+
+img { max-width: 100%; }

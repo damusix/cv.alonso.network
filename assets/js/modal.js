@@ -102,6 +102,10 @@ export function showPromptModal() {
     showModal('prompt.md', 'LLM Prompt');
 }
 
+export function showPrivacyModal() {
+    showModal('privacy.md', 'Privacy & Data Collection');
+}
+
 export async function copyModalMarkdown() {
     console.log('copyModalMarkdown called');
 

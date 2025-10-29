@@ -3,6 +3,8 @@
 @media print {
     .editor-toggle,
     .editor-panel,
+    .editor-pane,
+    .divider,
     .action-menu-container {
         display: none !important;
     }
@@ -10,6 +12,20 @@
     body {
         background: white;
         padding: 0;
+        overflow: visible;
+    }
+
+    .split-view-container {
+        display: block;
+        height: auto;
+        width: auto;
+        position: static;
+    }
+
+    .cv-pane {
+        width: 100%;
+        height: auto;
+        overflow: visible;
     }
 
     .cv-container {

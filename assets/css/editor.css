@@ -1,12 +1,13 @@
 /* Editor Panel Styles */
 
+
 .editor-panel {
     position: fixed;
     top: 0;
     right: -600px;
     width: 600px;
     height: 100vh;
-    background: white;
+    background: #1e1e1e;
     box-shadow: -4px 0 12px rgba(0,0,0,0.15);
     z-index: 999;
     transition: right 0.3s ease;
@@ -25,105 +26,90 @@
     z-index: 9999;
 }
 
+/* VSCode-Style Header */
+
 .editor-header {
-    padding: var(--spacing-lg);
-    border-bottom: 1px solid var(--border-color);
+    background: #252526;
+    border-bottom: 1px solid #1e1e1e;
     display: flex;
     justify-content: space-between;
     align-items: center;
-}
-
-.editor-header h2 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0;
+    height: 35px;
+    padding: 0;
 }
 
 .editor-header .close {
     background: none;
     border: none;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     cursor: pointer;
-    color: var(--text-secondary);
+    color: #cccccc;
     padding: 0;
-    width: 32px;
-    height: 32px;
-    display: flex;
+    width: 35px;
+    height: 35px;
+    display: none;
     align-items: center;
     justify-content: center;
+    transition: background 0.2s;
 }
 
-.editor-controls {
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-bottom: 1px solid var(--border-color);
+.editor-header .close:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* VSCode-Style Tabs */
+
+.editor-tabs {
     display: flex;
-    gap: var(--spacing-md);
-    align-items: center;
+    height: 100%;
+    gap: 0;
 }
 
-.mode-toggle {
-    display: flex;
-    background: #f3f4f6;
-    border-radius: 0.375rem;
-    padding: 0.25rem;
-}
-
-.mode-toggle button {
-    padding: 0.375rem 0.75rem;
-    border: none;
-    background: none;
-    cursor: pointer;
-    border-radius: 0.25rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-    transition: all 0.2s;
-}
-
-.mode-toggle button.active {
-    background: white;
-    color: var(--accent-color);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-.editor-actions {
-    margin-left: auto;
-    display: flex;
-    gap: var(--spacing-sm);
-}
-
-.editor-actions button {
-    padding: 0.5rem 1rem;
-    border: 1px solid var(--border-color);
-    background: white;
-    cursor: pointer;
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.2s;
+.editor-tab {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    padding: 0 12px;
+    min-width: 120px;
+    height: 100%;
+    background: #2d2d30;
+    border-right: 1px solid #1e1e1e;
+    color: #969696;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s, color 0.2s;
+    user-select: none;
 }
 
-.editor-actions button:hover {
-    background: #f9fafb;
+.editor-tab:hover {
+    color: #ffffff;
 }
 
-.editor-actions button.primary {
-    background: var(--accent-color);
-    color: white;
-    border-color: var(--accent-color);
+.editor-tab.active {
+    background: #1e1e1e;
+    color: #ffffff;
+    border-bottom: 1px solid #007acc;
 }
 
-.editor-actions button.primary:hover {
-    background: #1d4ed8;
+.editor-tab .tab-label {
+    white-space: nowrap;
 }
+
+/* Mobile: Show close button */
+
+@media (max-width: 768px) {
+    .editor-header .close.mobile-only {
+        display: flex;
+    }
+}
+
+/* Editor Container */
 
 .editor-container {
     flex: 1;
     overflow: hidden;
 }
+
+/* Error Display */
 
 .editor-error {
     padding: var(--spacing-md) var(--spacing-lg);

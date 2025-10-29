@@ -5,6 +5,29 @@ export const STORAGE_RESULT_KEY = 'cv-data-result';
 export const STORAGE_MODE_KEY = 'cv-editor-mode';
 export const STORAGE_STYLES_KEY = 'cv-custom-styles';
 
+export const defaultMessage = `
+/**
+ * Welcome to the CV/Resume Generator!
+ *
+ * This is a simple tool to create and customize your CV using JSON data.
+ * You can edit the data, save, and see the rendered CV on the left.
+ *
+ * Click the floating action button to find the help guides and documentation.
+ *
+ * The data structure is presented below in its entirety for your reference.
+ * The example below isn't everything you can do— it's modular and flexible!
+ * Add new sections, reorder them, and customize the content as you see fit.
+ * You can use **Markdown** syntax for formatting text.
+ *
+ * Save your work frequently! Your data is stored in local storage, so it is only accessible on this device.
+ * Export your CV as a PDF or as CVML (a custom format for this tool) using the buttons in the FAB menu.
+ * The job market is insane and you need a custom CV for each application!
+ * Use the LLM prompt to generate and enhance your CVs quickly.
+ *
+ * Happy coding and best of luck with your job search!
+ */
+`
+
 export const cvData = {
     personal: {
         name: 'Jane Anderson',
