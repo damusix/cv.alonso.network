@@ -22,9 +22,9 @@ export function getEditorMode() {
     return editorMode;
 }
 
-const defaultValue = () => {
+const defaultValue = (overrideData) => {
 
-    const data = JSON.stringify(cvData, null, 4);
+    const data = JSON.stringify(overrideData || cvData, null, 4);
 
     return `${defaultMessage}\n\nreturn ${data};`;
 }
@@ -70,8 +70,7 @@ export async function initializeEditor() {
                 } else {
                     // Code and result are out of sync - regenerate from result (source of truth)
                     console.warn('localStorage code/result mismatch detected, regenerating from result');
-                    const dataToUse = savedData.result;
-                    initialValue = defaultValue();
+                    initialValue = defaultValue(savedData.result);
                     initialLanguage = 'javascript';
                     // Fix localStorage immediately
                     localStorage.setItem('cv-data-code', initialValue);
@@ -79,8 +78,7 @@ export async function initializeEditor() {
             } catch (e) {
                 // Code is invalid - regenerate from result
                 console.warn('Invalid code in localStorage, regenerating from result', e);
-                const dataToUse = savedData.result;
-                initialValue = defaultValue();
+                initialValue = defaultValue(savedData.result);
                 initialLanguage = 'javascript';
                 // Fix localStorage immediately
                 localStorage.setItem('cv-data-code', initialValue);
@@ -91,8 +89,7 @@ export async function initializeEditor() {
             initialLanguage = 'javascript';
         } else {
             // Generate default code
-            const dataToUse = savedData.result || cvData;
-            initialValue = defaultValue();
+            initialValue = defaultValue(savedData.result);
             initialLanguage = 'javascript';
         }
 
@@ -163,8 +160,7 @@ async function getCommittedValue(mode) {
             return savedData.code;
         } else {
             // Generate default JavaScript code
-            const dataToUse = savedData.result || cvData;
-            return defaultValue();
+            return defaultValue(savedData.result);
         }
     }
 }
@@ -249,8 +245,11 @@ export async function setEditorMode(mode) {
         } else {
             // Switching from CSS to JavaScript - use saved data
             const savedData = loadSavedData();
-            const dataToUse = savedData.result || cvData;
-            newValue = defaultValue();
+            if (savedData.code) {
+                newValue = savedData.code;
+            } else {
+                newValue = defaultValue(savedData.result);
+            }
         }
 
         // Set language
