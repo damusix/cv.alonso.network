@@ -1,7 +1,7 @@
 # CV Generator
 
 
-Create and edit your CVs using JavaScript. Style it if you want. Print it, save it as PDF, and send it to your recruiter.
+Create and edit your CVs using JavaScript. Style it if you want. Use the AI chat assistant to generate, modify, or tailor your resume to a specific job posting. Print it, save it as PDF, and send it to your recruiter.
 
 ![Preview](screenshot.png)
 
@@ -150,6 +150,10 @@ Add icons to links using Font Awesome classes. Browse icons at [fontawesome.com]
 
 Changes auto-save to localStorage (including drafts and cursor position per mode). Export to `.cvml` files with tagged sections: `[cv-data js]` for data, `[cv-styles]` for CSS.
 
+### AI Chat Assistant
+
+Use the AI chat to generate, edit, or tailor your CV for a specific job posting. The assistant can create a full CV from scratch, update individual sections, or adjust your styling — all through natural language conversation. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini) with your own API keys. Web search is available via Brave Search for pulling in job descriptions or company info. All prompts and data stay in your browser and go directly to the LLM provider — nothing passes through Alonso Network servers.
+
 ### Print Optimization
 
 Print-optimized layout with proper page breaks, 0.75in margins, and clean styling.
@@ -161,13 +165,17 @@ Print-optimized layout with proper page breaks, 0.75in margins, and clean stylin
 
 | Shortcut | Action |
 |----------|--------|
+| `⌘S` / `Ctrl+S` | Apply changes (editor) or save settings (AI settings) |
 | `⌘E` / `Ctrl+E` | Toggle editor (mobile only) |
 | `⌘P` / `Ctrl+P` | Print CV |
-| `⌘S` / `Ctrl+S` | Apply changes (when editor is focused) |
 | `⌘\` / `Ctrl+\` | Toggle fullscreen (context-aware: editor pane when editor is focused, CV pane otherwise) |
+| `⌘,` / `Ctrl+,` | Open AI settings (when in AI mode) |
+| `⌘Enter` / `Ctrl+Enter` | Send AI message (when in AI mode) |
+| `Enter` | Send AI message (in chat input) |
+| `Shift+Enter` | New line in AI chat input |
 | `?` | Show help (when not typing in editor) |
-| `ESC` | Close menu |
-| `ESC ESC` (within 1s) | Close editor (mobile only) |
+| `ESC` | Close menu / close AI settings |
+| `ESC ESC` (within 1s) | Close editor (mobile) / abort AI message (in chat) |
 
 ---
 
@@ -186,6 +194,7 @@ Single-page application with modular JavaScript architecture:
     │   │   ├── editor.css        # VSCode-style editor panel
     │   │   ├── split-pane.css    # Split-pane layout system
     │   │   ├── action-menu.css   # Floating action menu
+    │   │   ├── ai-chat.css       # AI chat panel styling
     │   │   ├── modal.css         # Modal dialog styling
     │   │   ├── toast.css         # Toast notification styling
     │   │   └── print.css         # Print-specific styles
@@ -205,7 +214,17 @@ Single-page application with modular JavaScript architecture:
     │       ├── toast.js          # Toast notification system
     │       ├── keyboard.js       # Keyboard shortcuts
     │       ├── markdown.js       # Markdown rendering
-    │       └── ui-utils.js       # UI utility functions (fullscreen, etc.)
+    │       ├── ui-utils.js       # UI utility functions (fullscreen, etc.)
+    │       ├── utils.js          # General utility helpers
+    │       ├── ai/
+    │       │   ├── langchain.js  # LangChain LLM integration
+    │       │   ├── prompts.js    # AI system prompts and routing
+    │       │   ├── schemas.js    # AI data schemas
+    │       │   ├── search.js     # Brave web search integration
+    │       │   ├── templates.js  # AI prompt templates
+    │       │   └── ui.js         # AI chat panel UI
+    │       └── db/
+    │           └── db.js         # IndexedDB persistence for AI data
 
 ### Core Technologies
 
@@ -213,6 +232,8 @@ Single-page application with modular JavaScript architecture:
 - **markdown-it** (v14.1.0) - Markdown parsing
 - **Zod** (v3.23.8) - Runtime schema validation
 - **Font Awesome** (v6.7.1) - Icon library
+- **LangChain** - AI orchestration for multi-provider LLM support
+- **IndexedDB** - Client-side database for AI conversation history
 
 ### Storage System
 
