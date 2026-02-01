@@ -11,6 +11,7 @@ import { initializeModal, showHelpModal, showPromptModal, showPrivacyModal, clos
 import { exportCV, importCV } from './exports.js';
 import { initializeSplitPane, restoreEditorPaneState } from './split-pane.js';
 import { initializeToasts, notify } from './toast.js';
+import { on } from './observable.js';
 
 // Async initialization
 (async function() {
@@ -66,4 +67,14 @@ import { initializeToasts, notify } from './toast.js';
     window.exportCV = exportCV;
     window.importCV = importCV;
     window.notify = notify;
+    window.applyCvFromAI = async (...args) => {
+        const { applyCvFromAI } = await import('./ai/ui.js');
+        return applyCvFromAI(...args);
+    };
+
+    on('ai:cv-applied', ({ data }) => {
+        if (data && data.cvData) {
+            renderCV(data.cvData);
+        }
+    });
 })();

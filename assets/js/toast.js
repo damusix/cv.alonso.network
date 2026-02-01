@@ -86,3 +86,6 @@ on('cv:import', () => notify('CV imported!', 'info'));
 on('cv:export', () => notify('CV exported!', 'info'));
 
 on(/error/, ({ event, data }) => notify(data.message, 'error'));
+
+on('ai:cv-applied', () => notify('CV updated from AI!', 'success'));
+on('ai:settings-saved', () => notify('AI settings saved!', 'success'));

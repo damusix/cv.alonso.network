@@ -47,7 +47,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/js/all.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@logosdx/observer@2.0.4/dist/browser/bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@logosdx/observer@2.2.0/dist/browser/bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@logosdx/utils@6.0.0/dist/browser/bundle.js"></script>
 
   <!-- CSS Imports -->
   <link rel="stylesheet" href="assets/css/base.css">
@@ -58,6 +59,7 @@
   <link rel="stylesheet" href="assets/css/modal.css">
   <link rel="stylesheet" href="assets/css/toast.css">
   <link rel="stylesheet" href="assets/css/print.css">
+  <link rel="stylesheet" href="assets/css/ai-chat.css">
 </head>
 
 <body>
@@ -100,10 +102,14 @@
             <div class="editor-tab" data-mode="css" onclick="setEditorMode('css')">
               <span class="tab-label">Styles</span>
             </div>
+            <div class="editor-tab" data-mode="ai" onclick="setEditorMode('ai')">
+              <span class="tab-label">AI Chat</span>
+            </div>
           </div>
           <button class="close mobile-only" onclick="toggleEditor()" title="Close (press ESC twice)">×</button>
         </div>
         <div class="editor-container" id="editorContainer"></div>
+        <div class="ai-container" id="aiContainer" style="display: none;"></div>
       </div>
     </div>
   </div>

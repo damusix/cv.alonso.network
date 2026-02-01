@@ -2,11 +2,11 @@
 
 // Create a global observer instance (lazy initialization)
 let observer = null;
+const { ObserverEngine } = window.LogosDx?.Observer
 
 function getObserver() {
     if (!observer && window.LogosDx?.Observer) {
-        // LogosDx.Observer contains: ObserverEngine, EventQueue, EventGenerator, etc.
-        const { ObserverEngine } = window.LogosDx.Observer;
+
         observer = new ObserverEngine({
             spy: ({ fn, event, data }) => {
 

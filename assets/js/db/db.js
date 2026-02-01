@@ -1,0 +1,142 @@
+// Database Layer — Dexie wrapper for IndexedDB persistence
+
+import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
+import { assert } from '../utils.js';
+
+const Dexie = (await import('https://cdn.jsdelivr.net/npm/dexie@4.0.11/+esm')).default;
+
+// ─── Validation Schemas ──────────────────────────────────────────────────────
+
+const MessageInputSchema = z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string()
+});
+
+const ProviderSettingsSchema = z.object({
+    apiKey: z.string(),
+    smallModel: z.string().min(1),
+    responseModel: z.string().min(1)
+});
+
+const ProviderNameSchema = z.enum(['openai', 'anthropic', 'google-genai']);
+
+// ─── Database Class ──────────────────────────────────────────────────────────
+
+class CvGenDb {
+
+    constructor() {
+        this.db = new Dexie('CvGenerator');
+        this.db.version(1).stores({
+            chats: '++id, title, createdAt, updatedAt',
+            messages: '++id, chatId, role, content, timestamp',
+            settings: 'key'
+        });
+    }
+
+    // ─── Chat Operations ─────────────────────────────────────────────────
+
+    async loadChat(id) {
+        assert(typeof id === 'number' && id > 0, 'Chat ID must be a positive number');
+        const chat = await this.db.chats.get(id);
+        if (!chat) return null;
+        const messages = await this.db.messages
+            .where('chatId')
+            .equals(id)
+            .sortBy('timestamp');
+        return { ...chat, messages };
+    }
+
+    async getAllChats() {
+        return this.db.chats.orderBy('updatedAt').reverse().toArray();
+    }
+
+    async createChat(title) {
+        if (title !== undefined) {
+            assert(typeof title === 'string', 'Chat title must be a string');
+        }
+        const now = Date.now();
+        const id = await this.db.chats.add({
+            title: title || 'New Chat',
+            createdAt: now,
+            updatedAt: now
+        });
+        return this.db.chats.get(id);
+    }
+
+    async saveMessage(chatId, input) {
+        assert(typeof chatId === 'number' && chatId > 0, 'Chat ID must be a positive number');
+        const { role, content } = MessageInputSchema.parse(input);
+        const timestamp = Date.now();
+        const id = await this.db.messages.add({ chatId, role, content, timestamp });
+        await this.db.chats.update(chatId, { updatedAt: timestamp });
+        return this.db.messages.get(id);
+    }
+
+    async setTitle(id, title) {
+        assert(typeof id === 'number' && id > 0, 'Chat ID must be a positive number');
+        assert(typeof title === 'string' && title.length > 0, 'Title must be a non-empty string');
+        return this.db.chats.update(id, { title });
+    }
+
+    async deleteChat(id) {
+        assert(typeof id === 'number' && id > 0, 'Chat ID must be a positive number');
+        await this.db.messages.where('chatId').equals(id).delete();
+        return this.db.chats.delete(id);
+    }
+
+    async deleteMessage(id) {
+        assert(typeof id === 'number' && id > 0, 'Message ID must be a positive number');
+        return this.db.messages.delete(id);
+    }
+
+    async deleteMessagesFrom(chatId, messageId) {
+        assert(typeof chatId === 'number' && chatId > 0, 'Chat ID must be a positive number');
+        assert(typeof messageId === 'number' && messageId > 0, 'Message ID must be a positive number');
+        const msg = await this.db.messages.get(messageId);
+        if (!msg) return;
+        await this.db.messages
+            .where('chatId').equals(chatId)
+            .and(m => m.timestamp >= msg.timestamp)
+            .delete();
+    }
+
+    async clearAllChats() {
+        await this.db.messages.clear();
+        return this.db.chats.clear();
+    }
+
+    // ─── Settings Operations ─────────────────────────────────────────────
+
+    async setProviderSettings(provider, settings) {
+        ProviderNameSchema.parse(provider);
+        const { apiKey, smallModel, responseModel } = ProviderSettingsSchema.parse(settings);
+        return this.db.settings.put({
+            key: `provider:${provider}`,
+            value: { apiKey, smallModel, responseModel }
+        });
+    }
+
+    async setActiveProvider(provider) {
+        ProviderNameSchema.parse(provider);
+        return this.db.settings.put({ key: 'activeProvider', value: provider });
+    }
+
+    async getSettings() {
+        const rows = await this.db.settings.toArray();
+        const settings = {};
+        for (const row of rows) {
+            settings[row.key] = row.value;
+        }
+        return settings;
+    }
+
+    async hasValidSettings() {
+        const settings = await this.getSettings();
+        const active = settings.activeProvider;
+        if (!active) return false;
+        const provider = settings[`provider:${active}`];
+        return !!(provider && provider.apiKey);
+    }
+}
+
+export const db = new CvGenDb();

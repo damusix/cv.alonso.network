@@ -11,3 +11,8 @@ export function parseMarkdown(text) {
     // Remove wrapping <p> tags for inline rendering
     return md.renderInline(text);
 }
+
+export function renderMarkdown(text) {
+    if (!text) return '';
+    return md.render(text);
+}

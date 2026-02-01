@@ -1,5 +1,22 @@
 /* Editor Panel Styles */
 
+/* Dark theme tokens — shared by editor and AI chat panels */
+
+.editor-panel {
+    --ed-bg: #1e1e1e;
+    --ed-bg-raised: #252526;
+    --ed-bg-card: #2d2d30;
+    --ed-bg-input: #3c3c3c;
+    --ed-border: #1e1e1e;
+    --ed-border-input: #555;
+    --ed-accent: #007acc;
+    --ed-accent-hover: #006bb3;
+    --ed-text: #eee;
+    --ed-text-secondary: #ccc;
+    --ed-text-muted: #999;
+    --ed-text-dim: #888;
+    --ed-text-inactive: #969696;
+}
 
 .editor-panel {
     position: fixed;

@@ -3,40 +3,40 @@
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
 
 export const LinkSchema = z.object({
-    name: z.string(),
-    url: z.string().url(),
-    icon: z.string().optional()
-});
+    name: z.string().min(1, "Link name is required").describe("The display name of the link"),
+    url: z.string().url().describe("The full URL of the link"),
+    icon: z.string().optional().describe("Optional fontawesome icon class name for the link. Example: fas fa-github")
+}).strict();
 
 export const PersonalSchema = z.object({
-    name: z.string().min(1, "Name is required"),
-    title: z.string().optional(),
-    email: z.string().email("Invalid email address"),
-    phone: z.string().min(1, "Phone is required"),
-    location: z.string().min(1, "Location is required"),
-    links: z.array(LinkSchema).optional()
-});
+    name: z.string().min(1, "Name is required").describe("Full name of the person"),
+    title: z.string().optional().describe("Professional title, e.g. 'Senior Software Engineer'"),
+    email: z.string().email("Invalid email address").describe("Email address"),
+    phone: z.string().min(1, "Phone is required").describe("Phone number"),
+    location: z.string().min(1, "Location is required").describe("City, State/Country"),
+    links: z.array(LinkSchema).optional().describe("Professional links (GitHub, LinkedIn, portfolio)")
+}).strict();
 
 export const SectionItemSchema = z.object({
-    title: z.string().min(1, "Item title is required"),
-    subtitle: z.string().optional(),
+    title: z.string().min(1, "Item title is required").describe("Title of the item"),
+    subtitle: z.string().optional().describe("Optional subtitle for the item"),
     period: z.object({
-        start: z.string().optional(),
-        end: z.string().optional()
-    }).optional(),
-    location: z.string().optional(),
-    content: z.array(z.string()).optional(),
-    tags: z.array(z.string()).optional()
-});
+        start: z.string().optional().describe("Start date or period"),
+        end: z.string().optional().describe("End date or period")
+    }).strict().optional().describe("Time period for the item"),
+    location: z.string().optional().describe("Location of the item"),
+    content: z.array(z.string()).optional().describe("Content paragraphs or bullet points"),
+    tags: z.array(z.string()).optional().describe("Tags or keywords associated with the item")
+}).strict();
 
 export const SectionSchema = z.object({
-    id: z.string().min(1, "Section ID is required"),
-    heading: z.string().min(1, "Section heading is required"),
-    items: z.array(SectionItemSchema).min(1, "Section must have at least one item")
-});
+    id: z.string().min(1, "Section ID is required").describe("Unique identifier for the section"),
+    heading: z.string().min(1, "Section heading is required").describe("Heading or title of the section"),
+    items: z.array(SectionItemSchema).min(1, "Section must have at least one item").describe("Array of items within the section")
+}).strict();
 
 export const CVDataSchema = z.object({
-    personal: PersonalSchema,
-    summary: z.string().optional(),
-    sections: z.array(SectionSchema).min(1, "CV must have at least one section")
-});
+    personal: PersonalSchema.describe("Personal information block for the CV"),
+    summary: z.string().optional().describe("Professional summary paragraph"),
+    sections: z.array(SectionSchema).min(1, "CV must have at least one section").describe("Array of CV sections")
+}).strict();

@@ -4,7 +4,6 @@
 let isDragging = false;
 let startX = 0;
 let startLeftWidth = 0;
-let startRightWidth = 0;
 
 export function initializeSplitPane() {
     const divider = document.getElementById('divider');
@@ -14,10 +13,10 @@ export function initializeSplitPane() {
 
     if (!divider || !cvPane || !editorPane) return;
 
-    // Load saved pane widths from localStorage
-    const savedWidths = loadPaneWidths();
-    if (savedWidths) {
-        applyPaneWidths(savedWidths.leftWidth, savedWidths.rightWidth);
+    // Load saved pane width from localStorage
+    const savedLeft = loadPaneWidth();
+    if (savedLeft != null) {
+        applyPaneWidths(savedLeft);
     }
 
     // Mouse events for dragging
@@ -41,7 +40,6 @@ export function initializeSplitPane() {
 
         startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
         startLeftWidth = cvPane.offsetWidth;
-        startRightWidth = editorPane.offsetWidth;
 
         e.preventDefault();
     }
@@ -51,20 +49,16 @@ export function initializeSplitPane() {
 
         const currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
         const deltaX = currentX - startX;
-
-        const containerWidth = splitContainer.offsetWidth - divider.offsetWidth;
+        const containerWidth = splitContainer.offsetWidth;
         const newLeftWidth = startLeftWidth + deltaX;
-        const newRightWidth = startRightWidth - deltaX;
 
         // Enforce minimum widths (300px for each pane)
         const minWidth = 300;
-        if (newLeftWidth < minWidth || newRightWidth < minWidth) return;
+        const maxLeftWidth = containerWidth - divider.offsetWidth - minWidth;
+        if (newLeftWidth < minWidth || newLeftWidth > maxLeftWidth) return;
 
-        // Calculate percentages
         const leftPercent = (newLeftWidth / containerWidth) * 100;
-        const rightPercent = (newRightWidth / containerWidth) * 100;
-
-        applyPaneWidths(leftPercent, rightPercent);
+        applyPaneWidths(leftPercent);
     }
 
     function stopDragging() {
@@ -75,37 +69,32 @@ export function initializeSplitPane() {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
 
-        // Save pane widths to localStorage
-        const containerWidth = splitContainer.offsetWidth - divider.offsetWidth;
-        const leftPercent = (cvPane.offsetWidth / containerWidth) * 100;
-        const rightPercent = (editorPane.offsetWidth / containerWidth) * 100;
-        savePaneWidths(leftPercent, rightPercent);
+        // Save left pane width to localStorage
+        const leftPercent = (cvPane.offsetWidth / splitContainer.offsetWidth) * 100;
+        savePaneWidth(leftPercent);
     }
 }
 
-function applyPaneWidths(leftPercent, rightPercent) {
+function applyPaneWidths(leftPercent) {
     const cvPane = document.getElementById('cvPane');
     const editorPane = document.getElementById('editorPane');
 
     cvPane.style.flex = `0 0 ${leftPercent}%`;
-    editorPane.style.flex = `0 0 ${rightPercent}%`;
+    editorPane.style.flex = '1';
 }
 
-function savePaneWidths(leftWidth, rightWidth) {
-    localStorage.setItem('cv-split-pane-widths', JSON.stringify({
-        leftWidth,
-        rightWidth
-    }));
+function savePaneWidth(leftWidth) {
+    localStorage.setItem('cv-split-pane-widths', JSON.stringify({ leftWidth }));
 }
 
-function loadPaneWidths() {
+function loadPaneWidth() {
     const saved = localStorage.getItem('cv-split-pane-widths');
     if (!saved) return null;
 
     try {
-        return JSON.parse(saved);
-    } catch (e) {
-        console.error('Failed to parse saved pane widths:', e);
+        const parsed = JSON.parse(saved);
+        return parsed.leftWidth ?? null;
+    } catch {
         return null;
     }
 }
@@ -131,12 +120,8 @@ export function isEditorPaneOpen() {
 export function restoreEditorPaneState() {
     // Desktop: Always show split-screen with saved widths
     if (window.innerWidth > 768) {
-        const savedWidths = loadPaneWidths();
-        if (savedWidths) {
-            applyPaneWidths(savedWidths.leftWidth, savedWidths.rightWidth);
-        } else {
-            applyPaneWidths(50, 50);
-        }
+        const savedLeft = loadPaneWidth();
+        applyPaneWidths(savedLeft ?? 50);
     }
 
     // Mobile: Restore open state if previously open

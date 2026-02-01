@@ -33,11 +33,18 @@ export async function initializeEditor() {
     const savedData = loadSavedData();
     const editorState = loadEditorState();
 
-    // Default to javascript mode, or use saved mode if it's valid (javascript/css only)
-    if (savedData.mode && (savedData.mode === 'javascript' || savedData.mode === 'css')) {
+    // Default to javascript mode, or use saved mode if it's valid
+    const validModes = { javascript: true, css: true, ai: true };
+    if (savedData.mode && validModes[savedData.mode]) {
         editorMode = savedData.mode;
     } else {
         editorMode = 'javascript';
+    }
+
+    // If starting in AI mode, show AI container and hide editor
+    if (editorMode === 'ai') {
+        document.getElementById('editorContainer').style.display = 'none';
+        document.getElementById('aiContainer').style.display = 'flex';
     }
 
     require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
@@ -136,6 +143,14 @@ export async function initializeEditor() {
         updateModeToggle();
         updateModeIndicators();
 
+        // Lazy-initialize AI module if starting in AI mode
+        if (editorMode === 'ai' && !window._aiInitialized) {
+            const aiContainer = document.getElementById('aiContainer');
+            const { initializeAI } = await import('./ai/ui.js');
+            await initializeAI(aiContainer);
+            window._aiInitialized = true;
+        }
+
         // Restore editor state (compatibility with old system)
         // Note: split-pane now handles open state, but we keep this for fullscreen
         if (editorState) {
@@ -183,12 +198,13 @@ function autoSaveDraft() {
 }
 
 function updateModeIndicators() {
+    const baseNames = { javascript: 'JavaScript', css: 'Styles', ai: 'AI Chat' };
     document.querySelectorAll('.editor-tab').forEach(tab => {
         const mode = tab.dataset.mode;
-        const baseName = mode === 'javascript' ? 'JavaScript' : 'Styles';
+        const baseName = baseNames[mode] || mode;
         const tabLabel = tab.querySelector('.tab-label');
         if (tabLabel) {
-            tabLabel.textContent = hasDraft(mode) ? `${baseName} ●` : baseName;
+            tabLabel.textContent = (mode !== 'ai' && hasDraft(mode)) ? `${baseName} ●` : baseName;
         }
     });
 }
@@ -212,38 +228,60 @@ export function toggleEditor() {
 }
 
 export async function setEditorMode(mode) {
-    if (!editor) return;
+    if (!editor && mode !== 'ai') return;
 
     const previousMode = editorMode;
 
-    // Save draft for current mode before switching (only if it differs from committed)
-    const currentValue = editor.getValue();
-    const committedValue = await getCommittedValue(previousMode);
+    // Save draft for current mode before switching (only for Monaco modes)
+    if (previousMode !== 'ai' && editor) {
+        const currentValue = editor.getValue();
+        const committedValue = await getCommittedValue(previousMode);
 
-    if (currentValue !== committedValue) {
-        saveDraft(previousMode, currentValue);
-    } else {
-        // Content matches committed, clear any existing draft
-        clearDraft(previousMode);
+        if (currentValue !== committedValue) {
+            saveDraft(previousMode, currentValue);
+        } else {
+            clearDraft(previousMode);
+        }
     }
 
     editorMode = mode;
     saveEditorMode(mode);
 
+    const editorContainer = document.getElementById('editorContainer');
+    const aiContainer = document.getElementById('aiContainer');
+
+    // Toggle containers
+    if (mode === 'ai') {
+        editorContainer.style.display = 'none';
+        aiContainer.style.display = 'flex';
+
+        // Lazy-initialize AI module
+        if (!window._aiInitialized) {
+            const { initializeAI } = await import('./ai/ui.js');
+            await initializeAI(aiContainer);
+            window._aiInitialized = true;
+        }
+
+        updateModeToggle();
+        updateModeIndicators();
+        emit('editor:mode-change', { mode, previousMode });
+        return;
+    }
+
+    // Switching away from AI to a Monaco mode
+    aiContainer.style.display = 'none';
+    editorContainer.style.display = '';
+
     let newValue;
 
     try {
-        // Check if new mode has a draft
         const draft = loadDraft(mode);
 
         if (draft) {
-            // Use draft content
             newValue = draft;
         } else if (mode === 'css') {
-            // Switching to CSS mode - load styles asynchronously
             newValue = await getCurrentStyles();
         } else {
-            // Switching from CSS to JavaScript - use saved data
             const savedData = loadSavedData();
             if (savedData.code) {
                 newValue = savedData.code;
@@ -252,16 +290,13 @@ export async function setEditorMode(mode) {
             }
         }
 
-        // Set language
         monaco.editor.setModelLanguage(editor.getModel(), mode === 'css' ? 'css' : 'javascript');
         editor.setValue(newValue);
 
-        // Save the converted code (only for non-CSS modes and when not using draft)
         if (mode !== 'css' && !draft) {
             localStorage.setItem('cv-data-code', newValue);
         }
 
-        // Restore cursor position for new mode
         const savedCursor = loadCursorPosition(mode);
         if (savedCursor) {
             if (savedCursor.position) {
@@ -272,21 +307,16 @@ export async function setEditorMode(mode) {
             }
         }
 
-        // Focus editor after mode switch
         editor.focus();
 
         updateModeToggle();
         updateModeIndicators();
-
-        // Emit mode change event
         emit('editor:mode-change', { mode, previousMode });
     } catch (e) {
-
-        emit('editor:mode-change:error',{
+        emit('editor:mode-change:error', {
             message: `Cannot convert to ${mode.toUpperCase()}: ${e.message}`
         });
-
-        editorMode = previousMode; // Revert on error
+        editorMode = previousMode;
     }
 }
 
@@ -301,7 +331,7 @@ function updateModeToggle() {
 }
 
 export function applyChanges() {
-    if (!editor) return;
+    if (!editor || editorMode === 'ai') return;
 
     // Cancel any pending auto-save
     clearTimeout(autoSaveTimeout);

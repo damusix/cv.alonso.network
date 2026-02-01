@@ -3,7 +3,7 @@
 .action-menu-container {
     position: fixed;
     bottom: 2rem;
-    right: 2rem;
+    left: 2rem;
     z-index: 998;
 }
 
@@ -27,7 +27,7 @@
 .action-menu {
     position: absolute;
     bottom: 70px;
-    right: 0;
+    left: 0;
     background: white;
     border-radius: 0.5rem;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
