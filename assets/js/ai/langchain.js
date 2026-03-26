@@ -715,7 +715,8 @@ export class CvAgent {
             userMessage: augmentedMessage,
             chatHistory,
             attachments,
-            signal: this.#genToolModel
+            model: this.#genToolModel,
+            signal
         })) {
             if (event.type === 'tool_start' && GEN_TOOL_NAMES[event.chunk.name]) {
                 const stepId = event.chunk.name === 'add_section'
