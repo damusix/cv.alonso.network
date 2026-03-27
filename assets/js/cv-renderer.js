@@ -4,7 +4,7 @@ import { parseMarkdown } from './markdown.js';
 
 export function getDocumentTitle(data) {
     const title = [data.name ,'CV', (new Date().toISOString().split('T')[0])];
-    return title.join('-').replace(' ', '-').toLowerCase();
+    return title.join('-').replaceAll(' ', '-').toLowerCase();
 }
 
 export function renderHeader(data) {

@@ -2,11 +2,12 @@
 
 import { db } from '../db/db.js';
 import { emit } from '../observable.js';
-import { attempt, clone, merge, reach, setDeep, throttle, debounce } from '../utils.js';
+import { attempt, clone, reach, setDeep, throttle, debounce } from '../utils.js';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js';
 import { configureSearch } from './search.js';
 import { renderCV } from '../cv-renderer.js';
+import { saveCVData, loadSavedData } from '../storage.js';
 import { applyStyles, getCurrentStyles } from '../styles.js';
-import { STORAGE_CODE_KEY, STORAGE_RESULT_KEY, STORAGE_STYLES_KEY } from '../config.js';
 import { renderMarkdown } from '../markdown.js';
 import {
     settingsScreen,
@@ -278,8 +279,11 @@ async function handleSendMessage() {
     const userBubbleEl = messagesEl.lastElementChild;
     scrollMessagesToBottom();
 
-    // Save to DB and set message ID on DOM element
-    const [savedUserMsg] = await attempt(() => db.saveMessage(currentChatId, { role: 'user', content: text }));
+    // Save to DB — include attachment filenames so history preserves context
+    const attachmentSuffix = pendingAttachments.length > 0
+        ? '\n' + pendingAttachments.map(a => `[Attached: ${a.name}]`).join('\n')
+        : '';
+    const [savedUserMsg] = await attempt(() => db.saveMessage(currentChatId, { role: 'user', content: text + attachmentSuffix }));
     if (savedUserMsg?.id && userBubbleEl) {
         userBubbleEl.dataset.messageId = savedUserMsg.id;
         userBubbleEl.insertAdjacentHTML('afterbegin',
@@ -306,27 +310,40 @@ async function handleSendMessage() {
     setInputLoading(true);
 
     // Process with agent
-    let assistantBubble = null;
-    let contentEl = null;
+    const bubbleState = { assistantBubble: null, contentEl: null };
     let fullResponse = '';
     let classifiedIntent = null;
 
-    // Build chat history from rendered messages, excluding empty and the just-added user message
-    const chatHistory = Array.from(messagesEl.querySelectorAll('.ai-message'))
-        .slice(0, -1) // exclude the just-added user message
-        .map(el => ({
-            role: el.classList.contains('ai-msg-user') ? 'user' : 'assistant',
-            content: el.querySelector('.ai-message-content')?.textContent?.trim() || ''
-        }))
-        .filter(msg => msg.content);
+    // Build chat history from IndexedDB (source of truth)
+    const [allMessages] = await attempt(() => db.getMessages(currentChatId));
+    const dbMessages = (allMessages || []).map(m => ({ role: m.role, content: m.content }));
 
+    // Load existing summary
+    const [existingSummary] = await attempt(() => db.getSummary(currentChatId));
+
+    // Trim to token budget
+    const summaryTokens = existingSummary ? estimateTokens(existingSummary) : 0;
+    const { kept: chatHistory, dropped } = trimChatHistory(dbMessages, { summaryTokens });
+
+    // Summarize dropped messages if any
+    let summary = existingSummary || null;
+    if (dropped.length > 0 && agent) {
+        const transcript = formatTranscript(dropped);
+        const [newSummary] = await attempt(() => agent.summarize(transcript, existingSummary));
+        if (newSummary) {
+            summary = truncateSummary(newSummary);
+            await attempt(() => db.setSummary(currentChatId, summary));
+        }
+    }
+
+    const savedData = loadSavedData();
     const editorContext = {
-        js: localStorage.getItem(STORAGE_CODE_KEY) || null,
+        js: savedData.code || (savedData.result ? `return ${JSON.stringify(savedData.result, null, 4)};` : null),
         css: await getCurrentStyles() || null,
     };
 
     const [stream, streamErr] = await attempt(() =>
-        agent.processMessage(text, chatHistory, attachmentsForAgent, editorContext)
+        agent.processMessage(text, chatHistory, attachmentsForAgent, editorContext, summary)
     );
 
     if (streamErr) {
@@ -357,33 +374,23 @@ async function handleSendMessage() {
                 }
 
                 case 'token': {
-                    if (!assistantBubble) {
-                        removeTypingIndicator();
-                        assistantBubble = createAssistantBubble();
-                        contentEl = assistantBubble.querySelector('.ai-message-content');
-                        messagesEl.appendChild(assistantBubble);
-                    }
+                    ensureAssistantBubble(bubbleState, messagesEl);
                     fullResponse += chunk;
-                    appendToken(contentEl, fullResponse);
+                    appendToken(bubbleState.contentEl, fullResponse);
                     break;
                 }
 
                 case 'gen_step_start': {
-                    if (!assistantBubble) {
-                        removeTypingIndicator();
-                        assistantBubble = createAssistantBubble();
-                        contentEl = assistantBubble.querySelector('.ai-message-content');
-                        messagesEl.appendChild(assistantBubble);
-                    }
-                    removeGenWorking(contentEl);
-                    contentEl.insertAdjacentHTML('beforeend',
+                    ensureAssistantBubble(bubbleState, messagesEl);
+                    removeGenWorking(bubbleState.contentEl);
+                    bubbleState.contentEl.insertAdjacentHTML('beforeend',
                         generationStepSkeleton(chunk.stepId, chunk.label));
                     scrollMessagesToBottom();
                     break;
                 }
 
                 case 'gen_step_done': {
-                    const stepEl = contentEl?.querySelector(`[data-step-id="${chunk.stepId}"]`);
+                    const stepEl = bubbleState.contentEl?.querySelector(`[data-step-id="${chunk.stepId}"]`);
                     if (stepEl) {
                         const indicator = stepEl.querySelector('.ai-gen-step-indicator');
                         if (indicator) {
@@ -392,13 +399,13 @@ async function handleSendMessage() {
                             indicator.innerHTML = `<i class="fa-solid fa-check"></i><span class="ai-gen-step-label">${label}</span>`;
                         }
                     }
-                    appendGenWorking(contentEl);
+                    appendGenWorking(bubbleState.contentEl);
                     scrollMessagesToBottom();
                     break;
                 }
 
                 case 'gen_step_error': {
-                    const stepEl = contentEl?.querySelector(`[data-step-id="${chunk.stepId}"]`);
+                    const stepEl = bubbleState.contentEl?.querySelector(`[data-step-id="${chunk.stepId}"]`);
                     if (stepEl) {
                         const indicator = stepEl.querySelector('.ai-gen-step-indicator');
                         if (indicator) {
@@ -413,40 +420,25 @@ async function handleSendMessage() {
 
                 case 'cv_data': {
                     flushRemainingTokens();
-                    removeGenWorking(contentEl);
-                    if (!assistantBubble) {
-                        removeTypingIndicator();
-                        assistantBubble = createAssistantBubble();
-                        contentEl = assistantBubble.querySelector('.ai-message-content');
-                        messagesEl.appendChild(assistantBubble);
-                    }
-                    contentEl.insertAdjacentHTML('beforeend', cvPreviewCard(chunk, null));
+                    removeGenWorking(bubbleState.contentEl);
+                    ensureAssistantBubble(bubbleState, messagesEl);
+                    bubbleState.contentEl.insertAdjacentHTML('beforeend', cvPreviewCard(chunk, null));
                     scrollMessagesToBottom();
                     break;
                 }
 
                 case 'cv_section': {
                     flushRemainingTokens();
-                    if (!assistantBubble) {
-                        removeTypingIndicator();
-                        assistantBubble = createAssistantBubble();
-                        contentEl = assistantBubble.querySelector('.ai-message-content');
-                        messagesEl.appendChild(assistantBubble);
-                    }
-                    contentEl.insertAdjacentHTML('beforeend', cvPreviewCard(chunk.data, chunk.path, chunk.operation));
+                    ensureAssistantBubble(bubbleState, messagesEl);
+                    bubbleState.contentEl.insertAdjacentHTML('beforeend', cvPreviewCard(chunk.data, chunk.path, chunk.operation));
                     scrollMessagesToBottom();
                     break;
                 }
 
                 case 'css_update': {
                     flushRemainingTokens();
-                    if (!assistantBubble) {
-                        removeTypingIndicator();
-                        assistantBubble = createAssistantBubble();
-                        contentEl = assistantBubble.querySelector('.ai-message-content');
-                        messagesEl.appendChild(assistantBubble);
-                    }
-                    contentEl.insertAdjacentHTML('beforeend', cssPreviewCard(chunk.css, chunk.summary));
+                    ensureAssistantBubble(bubbleState, messagesEl);
+                    bubbleState.contentEl.insertAdjacentHTML('beforeend', cssPreviewCard(chunk.css, chunk.summary));
                     scrollMessagesToBottom();
                     break;
                 }
@@ -460,13 +452,13 @@ async function handleSendMessage() {
 
                 case 'done': {
                     flushRemainingTokens();
-                    removeGenWorking(contentEl);
+                    removeGenWorking(bubbleState.contentEl);
 
                     // Add "Apply All" button if there are multiple CV preview cards
-                    if (contentEl) {
-                        const previewCards = contentEl.querySelectorAll('.ai-cv-preview [data-action="apply-cv"]');
+                    if (bubbleState.contentEl) {
+                        const previewCards = bubbleState.contentEl.querySelectorAll('.ai-cv-preview [data-action="apply-cv"]');
                         if (previewCards.length > 1) {
-                            contentEl.insertAdjacentHTML('beforeend', applyAllButton());
+                            bubbleState.contentEl.insertAdjacentHTML('beforeend', applyAllButton());
                         }
                     }
 
@@ -474,8 +466,8 @@ async function handleSendMessage() {
                         role: 'assistant',
                         content: fullResponse
                     }));
-                    if (savedAssistantMsg?.id && assistantBubble) {
-                        assistantBubble.dataset.messageId = savedAssistantMsg.id;
+                    if (savedAssistantMsg?.id && bubbleState.assistantBubble) {
+                        bubbleState.assistantBubble.dataset.messageId = savedAssistantMsg.id;
                     }
 
                     // Update title if the router decided the topic is clear
@@ -523,6 +515,30 @@ function createAssistantBubble() {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = messageTemplate({ role: 'assistant', content: '' });
     return wrapper.firstElementChild;
+}
+
+function ensureAssistantBubble(state, messagesEl) {
+    if (!state.assistantBubble) {
+        removeTypingIndicator();
+        state.assistantBubble = createAssistantBubble();
+        state.contentEl = state.assistantBubble.querySelector('.ai-message-content');
+        messagesEl.appendChild(state.assistantBubble);
+    }
+}
+
+async function deleteMessageAndTail(msgEl, msgId) {
+    await attempt(() => db.deleteMessagesFrom(currentChatId, msgId));
+    while (msgEl.nextElementSibling) {
+        msgEl.nextElementSibling.remove();
+    }
+    msgEl.remove();
+}
+
+function markButtonApplied(btn) {
+    btn.textContent = 'Applied';
+    btn.disabled = true;
+    btn.classList.remove('ai-btn-primary');
+    btn.classList.add('ai-btn-ghost');
 }
 
 // ─── File Upload ─────────────────────────────────────────────────────────────
@@ -573,50 +589,38 @@ function renderAttachmentPills() {
 // ─── Apply CV ────────────────────────────────────────────────────────────────
 
 export function applyCvFromAI(cvData, path, operation = 'set') {
+    let finalData;
+
     if (!path) {
         // Full generation
-        const code = `return ${JSON.stringify(cvData, null, 4)};`;
-        localStorage.setItem(STORAGE_CODE_KEY, code);
-        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(cvData));
-        renderCV(cvData);
+        finalData = cvData;
     } else {
         // Partial update via dot-path
-        const savedResult = localStorage.getItem(STORAGE_RESULT_KEY);
-        if (!savedResult) return;
+        const saved = loadSavedData();
+        if (!saved.result) return;
 
-        let currentData;
-        try {
-            currentData = JSON.parse(savedResult);
-        } catch {
-            return;
-        }
-
-        const merged = clone(currentData);
+        finalData = clone(saved.result);
 
         if (operation === 'insert') {
-            // Splice into the parent array at the given index
             const segments = path.split('.');
             const index = Number(segments.pop());
             const parentPath = segments.join('.');
-            const parent = parentPath ? reach(merged, parentPath) : merged;
+            const parent = parentPath ? reach(finalData, parentPath) : finalData;
 
             if (Array.isArray(parent) && !isNaN(index)) {
                 parent.splice(index, 0, cvData);
             } else {
-                // Fallback to set if parent isn't an array
-                setDeep(merged, path, cvData);
+                setDeep(finalData, path, cvData);
             }
         } else {
-            setDeep(merged, path, cvData);
+            setDeep(finalData, path, cvData);
         }
-
-        const code = `return ${JSON.stringify(merged, null, 4)};`;
-        localStorage.setItem(STORAGE_CODE_KEY, code);
-        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(merged));
-        renderCV(merged);
     }
 
-    emit('ai:cv-applied');
+    const code = `return ${JSON.stringify(finalData, null, 4)};`;
+    saveCVData(code, finalData);
+    renderCV(finalData);
+    emit('ai:cv-applied', { data: { cvData: finalData } });
 }
 
 // ─── Event Delegation ────────────────────────────────────────────────────────
@@ -674,13 +678,7 @@ function setupEventDelegation(container) {
                 if (!msgEl) break;
                 const msgId = Number(msgEl.dataset.messageId);
                 if (!msgId || !currentChatId) break;
-
-                await attempt(() => db.deleteMessagesFrom(currentChatId, msgId));
-
-                while (msgEl.nextElementSibling) {
-                    msgEl.nextElementSibling.remove();
-                }
-                msgEl.remove();
+                await deleteMessageAndTail(msgEl, msgId);
                 break;
             }
 
@@ -689,16 +687,8 @@ function setupEventDelegation(container) {
                 if (!msgEl) break;
                 const msgId = Number(msgEl.dataset.messageId);
                 if (!msgId || !currentChatId) break;
-
                 const content = msgEl.querySelector('.ai-message-content')?.textContent?.trim() || '';
-
-                await attempt(() => db.deleteMessagesFrom(currentChatId, msgId));
-
-                while (msgEl.nextElementSibling) {
-                    msgEl.nextElementSibling.remove();
-                }
-                msgEl.remove();
-
+                await deleteMessageAndTail(msgEl, msgId);
                 const textarea = document.getElementById('aiInput');
                 if (textarea) {
                     textarea.value = content;
@@ -713,18 +703,8 @@ function setupEventDelegation(container) {
                 if (!msgEl) break;
                 const msgId = Number(msgEl.dataset.messageId);
                 if (!msgId || !currentChatId) break;
-
                 const content = msgEl.querySelector('.ai-message-content')?.textContent?.trim() || '';
-
-                // Delete this message and all after it (same as edit)
-                await attempt(() => db.deleteMessagesFrom(currentChatId, msgId));
-
-                while (msgEl.nextElementSibling) {
-                    msgEl.nextElementSibling.remove();
-                }
-                msgEl.remove();
-
-                // Re-send immediately
+                await deleteMessageAndTail(msgEl, msgId);
                 const textarea = document.getElementById('aiInput');
                 if (textarea) {
                     textarea.value = content;
@@ -764,10 +744,7 @@ function setupEventDelegation(container) {
                     return;
                 }
                 applyCvFromAI(parsedCv, actionEl.dataset.path || null, actionEl.dataset.operation || 'set');
-                actionEl.textContent = 'Applied';
-                actionEl.disabled = true;
-                actionEl.classList.remove('ai-btn-primary');
-                actionEl.classList.add('ai-btn-ghost');
+                markButtonApplied(actionEl);
                 break;
             }
 
@@ -784,15 +761,10 @@ function setupEventDelegation(container) {
                         continue;
                     }
                     applyCvFromAI(parsedCv, btn.dataset.path || null, btn.dataset.operation || 'set');
-                    btn.textContent = 'Applied';
-                    btn.disabled = true;
-                    btn.classList.remove('ai-btn-primary');
-                    btn.classList.add('ai-btn-ghost');
+                    markButtonApplied(btn);
                 }
+                markButtonApplied(actionEl);
                 actionEl.textContent = 'All Applied';
-                actionEl.disabled = true;
-                actionEl.classList.remove('ai-btn-primary');
-                actionEl.classList.add('ai-btn-ghost');
                 break;
             }
 
@@ -801,10 +773,7 @@ function setupEventDelegation(container) {
                 if (!css) return;
                 applyStyles(css);
                 emit('ai:css-applied');
-                actionEl.textContent = 'Applied';
-                actionEl.disabled = true;
-                actionEl.classList.remove('ai-btn-primary');
-                actionEl.classList.add('ai-btn-ghost');
+                markButtonApplied(actionEl);
                 break;
             }
         }

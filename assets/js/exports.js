@@ -1,8 +1,8 @@
 // Import/Export Functionality
 
-import { loadSavedData, saveCVData, saveEditorMode } from './storage.js';
-import { loadSavedStyles, saveStyles } from './storage.js';
+import { loadSavedData, saveCVData, saveEditorMode, loadSavedStyles, saveStyles } from './storage.js';
 import { getDocumentTitle, renderCV } from './cv-renderer.js';
+import { CVDataSchema } from './validation.js';
 import { applyStyles } from './styles.js';
 import { getEditorMode, getEditor } from './editor.js';
 import { emit } from './observable.js';
@@ -73,9 +73,18 @@ export function importCV() {
             if (dataJsMatch) {
                 cvCode = dataJsMatch[1].trim();
                 const fn = new Function(cvCode);
-                cvData = fn();
+                const rawData = fn();
 
-                // Save to localStorage
+                // Validate with Zod before saving
+                const result = CVDataSchema.safeParse(rawData);
+                if (!result.success) {
+                    const errors = result.error.issues.map(issue =>
+                        `${issue.path.join('.')}: ${issue.message}`
+                    ).join('\n');
+                    throw new Error(`Invalid CV data in file:\n${errors}`);
+                }
+
+                cvData = result.data;
                 saveCVData(cvCode, cvData);
                 saveEditorMode('javascript');
             }

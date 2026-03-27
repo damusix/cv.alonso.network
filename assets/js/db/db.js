@@ -31,6 +31,11 @@ class CvGenDb {
             messages: '++id, chatId, role, content, timestamp',
             settings: 'key'
         });
+        this.db.version(2).stores({
+            chats: '++id, title, createdAt, updatedAt',
+            messages: '++id, chatId, role, content, timestamp',
+            settings: 'key'
+        });
     }
 
     // ─── Chat Operations ─────────────────────────────────────────────────
@@ -39,11 +44,16 @@ class CvGenDb {
         assert(typeof id === 'number' && id > 0, 'Chat ID must be a positive number');
         const chat = await this.db.chats.get(id);
         if (!chat) return null;
-        const messages = await this.db.messages
-            .where('chatId')
-            .equals(id)
-            .sortBy('timestamp');
+        const messages = await this.getMessages(id);
         return { ...chat, messages };
+    }
+
+    async getMessages(chatId) {
+        assert(typeof chatId === 'number' && chatId > 0, 'Chat ID must be a positive number');
+        return this.db.messages
+            .where('chatId')
+            .equals(chatId)
+            .sortBy('timestamp');
     }
 
     async getAllChats() {
@@ -76,6 +86,17 @@ class CvGenDb {
         assert(typeof id === 'number' && id > 0, 'Chat ID must be a positive number');
         assert(typeof title === 'string' && title.length > 0, 'Title must be a non-empty string');
         return this.db.chats.update(id, { title });
+    }
+
+    async setSummary(chatId, summary) {
+        assert(typeof chatId === 'number' && chatId > 0, 'Chat ID must be a positive number');
+        return this.db.chats.update(chatId, { summary });
+    }
+
+    async getSummary(chatId) {
+        assert(typeof chatId === 'number' && chatId > 0, 'Chat ID must be a positive number');
+        const chat = await this.db.chats.get(chatId);
+        return chat?.summary || null;
     }
 
     async deleteChat(id) {

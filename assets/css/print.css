@@ -1,7 +1,6 @@
 /* Print Styles */
 
 @media print {
-    .editor-toggle,
     .editor-panel,
     .editor-pane,
     .divider,
@@ -34,17 +33,17 @@
         padding: 0;
     }
 
-    /* header {
-        page-break-after: avoid;
+    header {
+        break-after: avoid;
     }
 
     main section {
-        page-break-inside: avoid;
+        break-inside: avoid;
     }
 
     main section .item {
-        page-break-inside: avoid;
-    } */
+        break-inside: avoid;
+    }
 
     header .links a {
         color: var(--text-primary);

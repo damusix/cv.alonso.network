@@ -30,6 +30,22 @@ export const AiStyleUpdateSchema = z.object({
     summary: z.string().describe("A brief description of what was changed in the CSS"),
 });
 
+export const AiPartialUpdatesSchema = z.object({
+    explanation: z.string().describe("Brief natural language explanation of what changes are being made and why. Do NOT include JSON or code blocks — just plain text sentences."),
+    updates: z.array(z.object({
+        operation: z.enum(['set', 'insert']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index. Use 'insert' when adding new items/sections, 'set' when editing existing ones."),
+        path: z.string().describe("Dot-notation path into the CV data object. Examples: 'personal', 'summary', 'sections.0', 'sections.2.items.1'"),
+        data: z.union([
+            PersonalSchema,
+            SectionSchema,
+            SectionItemSchema,
+            z.array(SectionSchema),
+            z.array(SectionItemSchema),
+            z.string(),
+        ]).describe("The data to set at the specified path. Must match the schema for that path.")
+    })).min(1).describe("Array of partial updates to apply to the CV"),
+});
+
 export const AiPartialUpdateSchema = z.object({
     operation: z.enum(['set', 'insert']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index (e.g. path 'sections.0.items.0' with 'insert' adds a new first item without removing existing ones). Use 'insert' when adding new items/sections, 'set' when editing existing ones."),
     path: z.string().describe("Dot-notation path into the CV data object where the update should be applied. Examples: 'personal' for contact info, 'summary' for the summary, 'sections.0' for the first section, 'sections.2.items.1' for the second item in the third section"),
@@ -38,6 +54,7 @@ export const AiPartialUpdateSchema = z.object({
         SectionSchema,
         SectionItemSchema,
         z.array(SectionSchema),
+        z.array(SectionItemSchema),
         z.string(),
     ]).describe("The data to set at the specified path. Must match the schema for that path: PersonalSchema for 'personal', string for 'summary', SectionSchema for a section, SectionItemSchema for an item")
 });

@@ -4,7 +4,7 @@ import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
 import { attempt, attemptSync, retry, withTimeout } from '../utils.js';
 import {
     AiIntentSchema,
-    AiPartialUpdateSchema,
+    AiPartialUpdatesSchema,
     AiStyleUpdateSchema,
     CVDataSchema,
     LinkSchema,
@@ -18,6 +18,8 @@ import {
     PARTIAL_UPDATE_SYSTEM_PROMPT,
     STYLE_UPDATE_SYSTEM_PROMPT,
     GENERATION_AGENT_PROMPT,
+    INNER_PARTIAL_UPDATE_PROMPT,
+    INNER_STYLE_UPDATE_PROMPT,
     buildContextPrompt
 } from './prompts.js';
 import { webSearch, isSearchConfigured } from './search.js';
@@ -123,6 +125,47 @@ const GENERATION_TOOLS = [
     },
 ];
 
+const PARTIAL_UPDATE_TOOLS = [
+    {
+        name: 'generate_partial_update',
+        description: 'Generate a CV partial update proposal. Provide clear instructions describing what to change. The tool will produce structured changes using the current CV data. Review the returned summary — if unsatisfied, call this tool again with corrective instructions. When satisfied, call accept_partial_update with the proposal ID.',
+        schema: z.object({
+            instructions: z.string().describe('Detailed instructions for what CV changes to make. Include specifics: which sections, items, fields to modify. If retrying, explain what was wrong with the previous attempt and what to fix.'),
+        }),
+    },
+    {
+        name: 'accept_partial_update',
+        description: 'Accept a partial update proposal after reviewing it. Only call this when you are satisfied with the proposal summary.',
+        schema: z.object({
+            proposalId: z.string().describe('The proposal ID returned by generate_partial_update'),
+        }),
+    },
+];
+
+const STYLE_UPDATE_TOOLS = [
+    {
+        name: 'generate_style_update',
+        description: 'Generate a CSS style update proposal. Provide clear instructions describing what visual changes to make. The tool will produce complete CSS using the current stylesheet. Review the returned summary — if unsatisfied, call this tool again with corrective instructions. When satisfied, call accept_style_update with the proposal ID.',
+        schema: z.object({
+            instructions: z.string().describe('Detailed instructions for what CSS changes to make. If retrying, explain what was wrong and what to fix.'),
+        }),
+    },
+    {
+        name: 'accept_style_update',
+        description: 'Accept a style update proposal after reviewing it. Only call this when you are satisfied with the proposal summary.',
+        schema: z.object({
+            proposalId: z.string().describe('The proposal ID returned by generate_style_update'),
+        }),
+    },
+];
+
+const UPDATE_TOOL_NAMES = {
+    generate_partial_update: true,
+    accept_partial_update: true,
+    generate_style_update: true,
+    accept_style_update: true,
+};
+
 const GEN_TOOL_NAMES = { set_personal_info: true, set_summary: true, add_section: true };
 
 const TOOL_STATUS_LABELS = {
@@ -133,98 +176,16 @@ const TOOL_STATUS_LABELS = {
     set_personal_info: 'Generating personal info',
     set_summary: 'Writing summary',
     add_section: 'Generating section',
+    generate_partial_update: 'Generating update',
+    accept_partial_update: 'Accepting update',
+    generate_style_update: 'Generating styles',
+    accept_style_update: 'Accepting styles',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const LLM_TIMEOUT = 60_000;
 const MAX_TOOL_ROUNDS = 5;
-
-/**
- * Extracts a single balanced JSON object starting from a position in text.
- * @param {string} text
- * @param {number} startFrom - Index to start searching from
- * @returns {{parsed: object|null, endIndex: number}}
- */
-function extractBalancedJson(text, startFrom = 0) {
-    const start = text.indexOf('{', startFrom);
-    if (start === -1) return { parsed: null, endIndex: text.length };
-
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-
-    for (let i = start; i < text.length; i++) {
-        const ch = text[i];
-        if (escape) { escape = false; continue; }
-        if (ch === '\\' && inString) { escape = true; continue; }
-        if (ch === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (ch === '{') depth++;
-        else if (ch === '}') {
-            depth--;
-            if (depth === 0) {
-                const [parsed] = attemptSync(() => JSON.parse(text.slice(start, i + 1)));
-                return { parsed, endIndex: i + 1 };
-            }
-        }
-    }
-
-    return { parsed: null, endIndex: text.length };
-}
-
-/**
- * Extracts JSON from a string that may contain ```json fences,
- * raw JSON, or JSON embedded in surrounding prose text.
- * @param {string} text
- * @returns {object|null}
- */
-function extractJson(text) {
-    // 1. Try ```json fences
-    const fenceMatch = text.match(/```json\s*\n?([\s\S]*?)```/);
-    if (fenceMatch) {
-        const [parsed] = attemptSync(() => JSON.parse(fenceMatch[1].trim()));
-        if (parsed) return parsed;
-    }
-
-    // 2. Try raw text as-is
-    const [direct] = attemptSync(() => JSON.parse(text.trim()));
-    if (direct) return direct;
-
-    // 3. Find first balanced JSON object from surrounding text
-    const { parsed } = extractBalancedJson(text);
-    return parsed;
-}
-
-/**
- * Extracts ALL JSON objects from a string. Finds objects in ```json fences
- * first, then falls back to scanning for balanced braces.
- * @param {string} text
- * @returns {object[]}
- */
-function extractAllJson(text) {
-    const results = [];
-
-    // 1. Try all ```json fences
-    const fenceRegex = /```json\s*\n?([\s\S]*?)```/g;
-    let fenceMatch;
-    while ((fenceMatch = fenceRegex.exec(text)) !== null) {
-        const [parsed] = attemptSync(() => JSON.parse(fenceMatch[1].trim()));
-        if (parsed) results.push(parsed);
-    }
-    if (results.length > 0) return results;
-
-    // 2. Scan for all balanced JSON objects
-    let pos = 0;
-    while (pos < text.length) {
-        const { parsed, endIndex } = extractBalancedJson(text, pos);
-        if (!parsed) break;
-        results.push(parsed);
-        pos = endIndex;
-    }
-
-    return results;
-}
 
 /**
  * Fetches a web page and extracts readable text content.
@@ -271,12 +232,20 @@ function formatUserContent(textContent, attachments) {
         } else {
             parts.push({
                 type: 'text',
-                text: `[Attached file: ${attachment.name}]\n${attachment.data}`,
+                text: `[Attached file: ${attachment.name}]\n${attachment.data || attachment.base64 || ''}`,
             });
         }
     }
 
-    parts.push({ type: 'text', text: textContent });
+    if (textContent) {
+        parts.push({ type: 'text', text: textContent });
+    }
+
+    // Anthropic rejects empty content arrays — ensure at least one text block
+    if (parts.length === 0) {
+        parts.push({ type: 'text', text: 'See attached file(s).' });
+    }
+
     return parts;
 }
 
@@ -319,6 +288,12 @@ export class CvAgent {
     /** @type {object|null} Generator model with agent + generation tools */
     #genToolModel = null;
 
+    /** @type {object|null} Generator model with agent + partial update tools */
+    #partialUpdateToolModel = null;
+
+    /** @type {object|null} Generator model with agent + style update tools */
+    #styleUpdateToolModel = null;
+
     /** @type {object} Accumulated context from clarification rounds */
     #contextBuffer = {};
 
@@ -330,6 +305,18 @@ export class CvAgent {
 
     /** @type {object|null} Accumulates generation tool results during full generation */
     #generationAccumulator = null;
+
+    /** @type {string|null} Conversation summary to prepend to system prompts */
+    #summary = null;
+
+    /** @type {Map<string, object>} Proposals awaiting acceptance (deciding map) */
+    #proposalMap = new Map();
+
+    /** @type {Array<object>} Accepted proposals (final output) */
+    #pendingChanges = [];
+
+    /** @type {Array<{role: string, content: string}>} Chat history for inner tool calls */
+    #currentChatHistory = [];
 
     /**
      * Configures the agent with provider settings. Instantiates both
@@ -391,6 +378,12 @@ export class CvAgent {
         const [genToolModel] = attemptSync(() => this.#generatorModel.bindTools([...AGENT_TOOLS, ...GENERATION_TOOLS]));
         this.#genToolModel = genToolModel || this.#generatorModel;
 
+        const [partialUpdateToolModel] = attemptSync(() => this.#generatorModel.bindTools([...AGENT_TOOLS, ...PARTIAL_UPDATE_TOOLS]));
+        this.#partialUpdateToolModel = partialUpdateToolModel || this.#generatorModel;
+
+        const [styleUpdateToolModel] = attemptSync(() => this.#generatorModel.bindTools([...AGENT_TOOLS, ...STYLE_UPDATE_TOOLS]));
+        this.#styleUpdateToolModel = styleUpdateToolModel || this.#generatorModel;
+
         this.#provider = provider;
     }
 
@@ -427,6 +420,16 @@ export class CvAgent {
     }
 
     /**
+     * Builds a system prompt with optional summary prefix.
+     * @param {string} basePrompt
+     * @returns {string}
+     */
+    #buildSystemPrompt(basePrompt) {
+        if (!this.#summary) return basePrompt;
+        return `[Previous conversation context]\n${this.#summary}\n\n${basePrompt}`;
+    }
+
+    /**
      * Classifies user intent using the router model.
      * @param {object} opts
      * @param {string} opts.userMessage
@@ -434,21 +437,29 @@ export class CvAgent {
      * @param {AbortSignal} [opts.signal]
      * @returns {Promise<object>} Parsed intent object
      */
-    async #classifyIntent({ userMessage, chatHistory, signal }) {
+    async #classifyIntent({ userMessage, chatHistory, attachments, signal }) {
+
+        // Include attachment names in the classifier message so it has context
+        let classifierMessage = userMessage;
+        if (attachments && attachments.length > 0) {
+            const fileNames = attachments.map(a => a.name).join(', ');
+            classifierMessage = (userMessage ? userMessage + '\n' : '') + `[User attached files: ${fileNames}]`;
+        }
 
         return retry(async () => {
-            const structuredRouter = this.#routerModel.withStructuredOutput(AiIntentSchema);
+            const structuredRouter = this.#routerModel.withStructuredOutput(AiIntentSchema, { includeRaw: true });
             const messages = [
-                ['system', ROUTER_SYSTEM_PROMPT],
+                ['system', this.#buildSystemPrompt(ROUTER_SYSTEM_PROMPT)],
                 ...toLangChainMessages(chatHistory),
-                ['human', userMessage],
+                ['human', classifierMessage || 'The user sent a message.'],
             ];
-            const [result, err] = await attempt(
-                withTimeout(() => structuredRouter.invoke(messages, { signal }), { timeout: LLM_TIMEOUT, signal })
+            const [response, err] = await attempt(
+                withTimeout(() => structuredRouter.invoke(messages, { signal }), { timeout: LLM_TIMEOUT })
             );
             if (err) throw err;
+
+            const result = response?.parsed ?? response?.raw?.tool_calls?.[0]?.args ?? response;
             if (result == null) throw new Error('Intent classification returned empty response');
-            // Explicit Zod validation — withStructuredOutput may not validate on all providers
             return AiIntentSchema.parse(result);
         }, { retries: 1, throwLastError: true, signal });
     }
@@ -498,6 +509,85 @@ export class CvAgent {
                     this.#generationAccumulator.sections.push(toolCall.args);
                 }
                 return `Section "${toolCall.args.heading}" added with ${toolCall.args.items.length} items.`;
+
+            case 'generate_partial_update': {
+                const proposalId = crypto.randomUUID();
+                const cvData = this.#editorContext?.js || '';
+                const instructions = toolCall.args.instructions;
+
+                const systemPrompt = `${INNER_PARTIAL_UPDATE_PROMPT}\n\n[Current CV Data]\n\`\`\`javascript\n${cvData}\n\`\`\``;
+                const chatHistorySlice = this.#currentChatHistory || [];
+                const userPrompt = chatHistorySlice.map(m =>
+                    `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+                ).join('\n') + `\n\nInstructions: ${instructions}`;
+
+                const structured = this.#routerModel.withStructuredOutput(AiPartialUpdatesSchema, { includeRaw: true });
+                const msgs = [['system', systemPrompt], ['human', userPrompt]];
+
+                const [response, err] = await attempt(
+                    withTimeout(() => structured.invoke(msgs, { signal }), { timeout: LLM_TIMEOUT })
+                );
+
+                if (err) return `Generation failed: ${err.message}. Try again with different instructions.`;
+
+                const data = response?.parsed ?? response?.raw?.tool_calls?.[0]?.args;
+                if (!data) return 'Generation returned empty result. Try again with more specific instructions.';
+
+                const [parsed, parseErr] = attemptSync(() => AiPartialUpdatesSchema.parse(data));
+                if (parseErr) return `Generation produced invalid data: ${parseErr.message}. Try again.`;
+
+                this.#proposalMap.set(proposalId, { id: proposalId, type: 'partial', ...parsed });
+
+                const paths = parsed.updates.map(u => u.path).join(', ');
+                return `Proposal ${proposalId}: ${parsed.explanation}. ${parsed.updates.length} update(s) affecting: ${paths}.`;
+            }
+
+            case 'accept_partial_update': {
+                const proposal = this.#proposalMap.get(toolCall.args.proposalId);
+                if (!proposal) return `Proposal ${toolCall.args.proposalId} not found. Available: ${[...this.#proposalMap.keys()].join(', ') || 'none'}`;
+                this.#pendingChanges.push(proposal);
+                this.#proposalMap.delete(toolCall.args.proposalId);
+                return `Accepted proposal ${toolCall.args.proposalId}.`;
+            }
+
+            case 'generate_style_update': {
+                const proposalId = crypto.randomUUID();
+                const currentCss = this.#editorContext?.css || '';
+                const instructions = toolCall.args.instructions;
+
+                const systemPrompt = `${INNER_STYLE_UPDATE_PROMPT}\n\n[Current CSS]\n\`\`\`css\n${currentCss}\n\`\`\``;
+                const chatHistorySlice = this.#currentChatHistory || [];
+                const userPrompt = chatHistorySlice.map(m =>
+                    `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+                ).join('\n') + `\n\nInstructions: ${instructions}`;
+
+                const structured = this.#routerModel.withStructuredOutput(AiStyleUpdateSchema, { includeRaw: true });
+                const msgs = [['system', systemPrompt], ['human', userPrompt]];
+
+                const [response, err] = await attempt(
+                    withTimeout(() => structured.invoke(msgs, { signal }), { timeout: LLM_TIMEOUT })
+                );
+
+                if (err) return `Style generation failed: ${err.message}. Try again with different instructions.`;
+
+                const data = response?.parsed ?? response?.raw?.tool_calls?.[0]?.args;
+                if (!data) return 'Style generation returned empty result. Try again with more specific instructions.';
+
+                const [parsed, parseErr] = attemptSync(() => AiStyleUpdateSchema.parse(data));
+                if (parseErr) return `Style generation produced invalid data: ${parseErr.message}. Try again.`;
+
+                this.#proposalMap.set(proposalId, { id: proposalId, type: 'style', ...parsed });
+
+                return `Proposal ${proposalId}: ${parsed.summary}`;
+            }
+
+            case 'accept_style_update': {
+                const proposal = this.#proposalMap.get(toolCall.args.proposalId);
+                if (!proposal) return `Proposal ${toolCall.args.proposalId} not found. Available: ${[...this.#proposalMap.keys()].join(', ') || 'none'}`;
+                this.#pendingChanges.push(proposal);
+                this.#proposalMap.delete(toolCall.args.proposalId);
+                return `Accepted style proposal ${toolCall.args.proposalId}.`;
+            }
 
             default:
                 return `Unknown tool: ${toolCall.name}`;
@@ -603,64 +693,64 @@ export class CvAgent {
      * @param {{js: string|null, css: string|null}} [editorContext] - Current editor code from localStorage
      * @yields {{type: 'token'|'cv_data'|'cv_section'|'intent'|'error'|'done'|'tool_status', chunk: *}}
      */
-    async *processMessage(userMessage, chatHistory = [], attachments = [], editorContext = {}) {
+    async *processMessage(userMessage, chatHistory = [], attachments = [], editorContext = {}, summary = null) {
         this.#assertConfigured();
 
         // Store editor context for tool access
         this.#editorContext = editorContext;
+        this.#summary = summary;
+        this.#currentChatHistory = chatHistory;
 
         const controller = new AbortController();
         const signal = controller.signal;
 
         const cleanupAbort = once('chat:abort', () => controller.abort());
 
-        // Step 1: Classify intent
-        const [intent, classifyErr] = await attempt(
-            () => this.#classifyIntent({ userMessage, chatHistory, signal })
-        );
+        try {
+            // Step 1: Classify intent
+            const [intent, classifyErr] = await attempt(
+                () => this.#classifyIntent({ userMessage, chatHistory, attachments, signal })
+            );
 
-        if (classifyErr) {
+            if (classifyErr) {
+                yield { type: 'error', chunk: `Failed to classify intent: ${classifyErr.message}` };
+                yield { type: 'done', chunk: null };
+                return;
+            }
 
-            yield { type: 'error', chunk: `Failed to classify intent: ${classifyErr.message}` };
+            // Yield intent for UI consumption (e.g. title updates)
+            yield { type: 'intent', chunk: intent };
+
+            // Step 2: Route to appropriate handler
+            switch (intent.intent) {
+                case 'chitchat':
+                    yield* this.#handleChitchat({ userMessage, chatHistory, attachments, signal });
+                    break;
+
+                case 'clarification':
+                    yield* this.#handleClarification({ userMessage, chatHistory, attachments, signal });
+                    break;
+
+                case 'full_generation':
+                    yield* this.#handleFullGeneration({ userMessage, chatHistory, attachments, signal });
+                    break;
+
+                case 'partial_update':
+                    yield* this.#handlePartialUpdate({ userMessage, chatHistory, attachments, intent, signal });
+                    break;
+
+                case 'style_update':
+                    yield* this.#handleStyleUpdate({ userMessage, chatHistory, attachments, signal });
+                    break;
+
+                default:
+                    yield { type: 'error', chunk: `Unknown intent: ${intent.intent}` };
+            }
+
             yield { type: 'done', chunk: null };
-
+        } finally {
             cleanupAbort();
-
-            return;
         }
-
-        // Yield intent for UI consumption (e.g. title updates)
-        yield { type: 'intent', chunk: intent };
-
-        // Step 2: Route to appropriate handler
-        switch (intent.intent) {
-            case 'chitchat':
-                yield* this.#handleChitchat({ userMessage, chatHistory, attachments, signal });
-                break;
-
-            case 'clarification':
-                yield* this.#handleClarification({ userMessage, chatHistory, attachments, signal });
-                break;
-
-            case 'full_generation':
-                yield* this.#handleFullGeneration({ userMessage, chatHistory, attachments, signal });
-                break;
-
-            case 'partial_update':
-                yield* this.#handlePartialUpdate({ userMessage, chatHistory, attachments, intent, signal });
-                break;
-
-            case 'style_update':
-                yield* this.#handleStyleUpdate({ userMessage, chatHistory, attachments, signal });
-                break;
-
-            default:
-                yield { type: 'error', chunk: `Unknown intent: ${intent.intent}` };
-        }
-
-        yield { type: 'done', chunk: null };
-
-        cleanupAbort();
     }
 
     /**
@@ -668,7 +758,7 @@ export class CvAgent {
      */
     async *#handleChitchat({ userMessage, chatHistory, attachments, signal }) {
         yield* this.#streamWithTools({
-            systemPrompt: CHITCHAT_SYSTEM_PROMPT,
+            systemPrompt: this.#buildSystemPrompt(CHITCHAT_SYSTEM_PROMPT),
             userMessage,
             chatHistory,
             attachments,
@@ -682,7 +772,7 @@ export class CvAgent {
     async *#handleClarification({ userMessage, chatHistory, attachments, signal }) {
         this.#mergeContextFromMessage(userMessage);
         yield* this.#streamWithTools({
-            systemPrompt: CLARIFICATION_SYSTEM_PROMPT,
+            systemPrompt: this.#buildSystemPrompt(CLARIFICATION_SYSTEM_PROMPT),
             userMessage,
             chatHistory,
             attachments,
@@ -699,14 +789,12 @@ export class CvAgent {
         this.#generationAccumulator = { personal: null, summary: null, sections: [] };
 
         const contextPrompt = buildContextPrompt(this.#contextBuffer);
-        const systemPrompt = contextPrompt
+        const basePrompt = contextPrompt
             ? `${GENERATION_AGENT_PROMPT}\n\n${contextPrompt}`
             : GENERATION_AGENT_PROMPT;
+        const systemPrompt = this.#buildSystemPrompt(basePrompt);
 
-        let augmentedMessage = userMessage;
-        if (this.#editorContext?.js) {
-            augmentedMessage = `[User's current CV data]\n\`\`\`javascript\n${this.#editorContext.js}\n\`\`\`\n\n${userMessage}`;
-        }
+        const augmentedMessage = this.#augmentWithContext(userMessage, 'js');
 
         let fullResponse = '';
 
@@ -768,23 +856,20 @@ export class CvAgent {
     }
 
     /**
-     * Handles partial CV update — streams response with tools, then
-     * extracts and validates the section/item fragment(s). Supports
-     * multiple JSON blocks in a single response. Falls back to
-     * a structured output retry if text extraction fails.
+     * Handles partial CV update via tool-based propose/accept cycle.
+     * Outer model streams with tools, calling generate/accept tools.
+     * Inner router model produces structured data via withStructuredOutput.
      */
     async *#handlePartialUpdate({ userMessage, chatHistory, attachments, intent, signal }) {
+        this.#proposalMap.clear();
+        this.#pendingChanges = [];
+
         const contextHint = intent.targetSection
             ? `\nThe user wants to update the "${intent.targetSection}" section.${intent.targetIndex >= 0 ? ` Specifically item at index ${intent.targetIndex}.` : ''}`
             : '';
 
-        const systemPrompt = `${PARTIAL_UPDATE_SYSTEM_PROMPT}${contextHint}`;
-
-        // Always include editor context for partial updates
-        let augmentedMessage = userMessage;
-        if (this.#editorContext?.js) {
-            augmentedMessage = `[User's current CV data]\n\`\`\`javascript\n${this.#editorContext.js}\n\`\`\`\n\n${userMessage}`;
-        }
+        const systemPrompt = this.#buildSystemPrompt(`${PARTIAL_UPDATE_SYSTEM_PROMPT}${contextHint}`);
+        const augmentedMessage = this.#augmentWithContext(userMessage, 'js');
 
         let fullResponse = '';
 
@@ -793,133 +878,85 @@ export class CvAgent {
             userMessage: augmentedMessage,
             chatHistory,
             attachments,
+            model: this.#partialUpdateToolModel,
             signal
         })) {
+            // Suppress tool_start/tool_done for update tools (user sees status only)
+            if (event.type === 'tool_start' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
+            if (event.type === 'tool_done' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
+
             if (event.type === 'token') fullResponse += event.chunk;
             yield event;
         }
 
-        // Try 1: extract all JSON blocks from streamed text and validate
-        const allUpdates = [];
-        let try1Error = null;
-        const jsonBlocks = extractAllJson(fullResponse);
-
-        for (const json of jsonBlocks) {
-            const [data, err] = attemptSync(() => AiPartialUpdateSchema.parse(json));
-            if (data) {
-                allUpdates.push(data);
-            } else if (!try1Error) {
-                try1Error = err;
-            }
+        // Yield accepted proposals
+        if (this.#pendingChanges.length === 0) {
+            yield { type: 'error', chunk: 'No update proposals were accepted.' };
+            return;
         }
 
-        // Try 2: retry with withStructuredOutput if no valid updates were extracted
-        if (allUpdates.length === 0) {
-            yield { type: 'tool_status', chunk: 'Retrying with structured output' };
-
-            const correctionPrompt = try1Error
-                ? `Your previous response:\n${fullResponse}\n\nThis failed schema validation: ${try1Error.message}\n\nPlease produce a corrected JSON object matching the required schema.`
-                : `Please produce the partial update as a JSON object matching the required schema.`;
-
-            const [retryResult, retryErr] = await attempt(() =>
-                retry(async () => {
-                    const structured = this.#generatorModel.withStructuredOutput(AiPartialUpdateSchema);
-                    const messages = [
-                        ['system', systemPrompt],
-                        ...toLangChainMessages(chatHistory),
-                        ['human', augmentedMessage],
-                        ['ai', fullResponse],
-                        ['human', correctionPrompt],
-                    ];
-                    const [result, invokeErr] = await attempt(
-                        withTimeout(() => structured.invoke(messages), { timeout: LLM_TIMEOUT })
-                    );
-                    if (invokeErr) throw invokeErr;
-                    if (result == null) throw new Error('Model returned empty structured output');
-                    return AiPartialUpdateSchema.parse(result);
-                }, { retries: 2, throwLastError: true })
-            );
-
-            if (retryErr) {
-                yield { type: 'error', chunk: `Partial update failed: ${retryErr.message}` };
-                return;
+        for (const proposal of this.#pendingChanges) {
+            if (proposal.type === 'partial') {
+                for (const updateData of proposal.updates) {
+                    yield { type: 'cv_section', chunk: updateData };
+                }
             }
-            allUpdates.push(retryResult);
-        }
-
-        for (const updateData of allUpdates) {
-            yield { type: 'cv_section', chunk: updateData };
         }
     }
 
     /**
-     * Handles style/CSS update — streams response with tools, then
-     * extracts and validates the CSS from the response. Falls back to
-     * a structured output retry if text extraction fails.
+     * Handles style/CSS update via tool-based propose/accept cycle.
+     * Outer model streams with tools, calling generate/accept tools.
+     * Inner router model produces structured CSS via withStructuredOutput.
      */
     async *#handleStyleUpdate({ userMessage, chatHistory, attachments, signal }) {
-        // Always include current CSS context
-        let augmentedMessage = userMessage;
-        if (this.#editorContext?.css) {
-            augmentedMessage = `[User's current CSS]\n\`\`\`css\n${this.#editorContext.css}\n\`\`\`\n\n${userMessage}`;
-        }
+        this.#proposalMap.clear();
+        this.#pendingChanges = [];
+
+        const systemPrompt = this.#buildSystemPrompt(STYLE_UPDATE_SYSTEM_PROMPT);
+        const augmentedMessage = this.#augmentWithContext(userMessage, 'css');
 
         let fullResponse = '';
 
         for await (const event of this.#streamWithTools({
-            systemPrompt: STYLE_UPDATE_SYSTEM_PROMPT,
+            systemPrompt,
             userMessage: augmentedMessage,
             chatHistory,
             attachments,
+            model: this.#styleUpdateToolModel,
             signal
         })) {
+            if (event.type === 'tool_start' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
+            if (event.type === 'tool_done' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
+
             if (event.type === 'token') fullResponse += event.chunk;
             yield event;
         }
 
-        // Try 1: extract CSS from ```css fences
-        let styleData = null;
-        const cssMatch = fullResponse.match(/```css\s*\n?([\s\S]*?)```/);
-        if (cssMatch) {
-            const css = cssMatch[1].trim();
-            if (css) {
-                styleData = { css, summary: 'Style update from AI' };
-            }
+        if (this.#pendingChanges.length === 0) {
+            yield { type: 'error', chunk: 'No style proposals were accepted.' };
+            return;
         }
 
-        // Try 2: retry with structured output
-        if (!styleData) {
-            yield { type: 'tool_status', chunk: 'Retrying with structured output' };
-
-            const correctionPrompt = `Your previous response:\n${fullResponse}\n\nPlease produce the CSS update as a JSON object with "css" (the complete CSS string) and "summary" (brief description of changes).`;
-
-            const [retryResult, retryErr] = await attempt(() =>
-                retry(async () => {
-                    const structured = this.#generatorModel.withStructuredOutput(AiStyleUpdateSchema);
-                    const messages = [
-                        ['system', STYLE_UPDATE_SYSTEM_PROMPT],
-                        ...toLangChainMessages(chatHistory),
-                        ['human', augmentedMessage],
-                        ['ai', fullResponse],
-                        ['human', correctionPrompt],
-                    ];
-                    const [result, invokeErr] = await attempt(
-                        withTimeout(() => structured.invoke(messages), { timeout: LLM_TIMEOUT, signal })
-                    );
-                    if (invokeErr) throw invokeErr;
-                    if (result == null) throw new Error('Model returned empty structured output');
-                    return AiStyleUpdateSchema.parse(result);
-                }, { retries: 2, throwLastError: true })
-            );
-
-            if (retryErr) {
-                yield { type: 'error', chunk: `Style update failed: ${retryErr.message}` };
-                return;
-            }
-            styleData = retryResult;
+        // Use the last accepted style proposal (CSS is full replacement)
+        const lastStyle = [...this.#pendingChanges].reverse().find(p => p.type === 'style');
+        if (lastStyle) {
+            yield { type: 'css_update', chunk: { css: lastStyle.css, summary: lastStyle.summary } };
         }
+    }
 
-        yield { type: 'css_update', chunk: styleData };
+    /**
+     * Prepends the relevant editor context (JS or CSS) to a user message.
+     * @param {string} userMessage
+     * @param {'js'|'css'} type
+     * @returns {string}
+     */
+    #augmentWithContext(userMessage, type = 'js') {
+        const content = this.#editorContext?.[type];
+        if (!content) return userMessage;
+        const label = type === 'css' ? 'User\'s current CSS' : 'User\'s current CV data';
+        const lang = type === 'css' ? 'css' : 'javascript';
+        return `[${label}]\n\`\`\`${lang}\n${content}\n\`\`\`\n\n${userMessage}`;
     }
 
     /**
@@ -937,6 +974,42 @@ export class CvAgent {
      */
     clearContext() {
         this.#contextBuffer = {};
+    }
+
+    /**
+     * Generates a summary of messages using the router (cheap) model.
+     * @param {string} transcript - Formatted message transcript
+     * @param {string|null} existingSummary - Previous summary to merge with
+     * @returns {Promise<string>} The generated summary
+     */
+    async summarize(transcript, existingSummary = null) {
+        this.#assertConfigured();
+
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js');
+
+        const userPrompt = existingSummary
+            ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
+            : transcript;
+
+        const messages = [
+            ['system', SUMMARIZATION_PROMPT],
+            ['human', userPrompt],
+        ];
+
+        const [result, err] = await attempt(
+            withTimeout(() => this.#routerModel.invoke(messages), { timeout: 30_000 })
+        );
+
+        if (err) {
+            console.warn('Summarization failed, skipping:', err.message);
+            return existingSummary || '';
+        }
+
+        const content = typeof result.content === 'string'
+            ? result.content
+            : result.content?.[0]?.text || '';
+
+        return content.trim();
     }
 
     /**

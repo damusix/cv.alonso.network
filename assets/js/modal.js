@@ -1,5 +1,7 @@
 // Modal Dialog Management
 
+import { renderDocMarkdown } from './markdown.js';
+
 const FIRST_VISIT_KEY = 'cv-first-visit';
 
 let modal = null;
@@ -63,14 +65,7 @@ export async function showModal(markdownUrl, title = 'Help') {
         currentMarkdownText = markdownText;
         console.log('Fetched markdown, text length:', markdownText.length);
 
-        // Convert markdown to HTML using markdown-it
-        const md = window.markdownit({
-            html: true,
-            breaks: true,
-            linkify: true
-        });
-
-        const htmlContent = md.render(markdownText);
+        const htmlContent = renderDocMarkdown(markdownText);
 
         // Set content and show modal
         modalContent.innerHTML = htmlContent;

@@ -2,7 +2,7 @@
 
 // Create a global observer instance (lazy initialization)
 let observer = null;
-const { ObserverEngine } = window.LogosDx?.Observer
+const { ObserverEngine } = window.LogosDx?.Observer ?? {};
 
 function getObserver() {
     if (!observer && window.LogosDx?.Observer) {

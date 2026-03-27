@@ -36,18 +36,11 @@
     right: 0;
 }
 
-.editor-panel.fullscreen {
-    width: 100vw;
-    left: 0;
-    right: 0;
-    z-index: 9999;
-}
-
 /* VSCode-Style Header */
 
 .editor-header {
-    background: #252526;
-    border-bottom: 1px solid #1e1e1e;
+    background: var(--ed-bg-raised);
+    border-bottom: 1px solid var(--ed-border);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -88,9 +81,9 @@
     padding: 0 12px;
     min-width: 120px;
     height: 100%;
-    background: #2d2d30;
-    border-right: 1px solid #1e1e1e;
-    color: #969696;
+    background: var(--ed-bg-card);
+    border-right: 1px solid var(--ed-border);
+    color: var(--ed-text-inactive);
     cursor: pointer;
     font-size: 13px;
     transition: background 0.2s, color 0.2s;
@@ -102,9 +95,9 @@
 }
 
 .editor-tab.active {
-    background: #1e1e1e;
+    background: var(--ed-bg);
     color: #ffffff;
-    border-bottom: 1px solid #007acc;
+    border-bottom: 1px solid var(--ed-accent);
 }
 
 .editor-tab .tab-label {

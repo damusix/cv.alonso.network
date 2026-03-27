@@ -1,9 +1,8 @@
 // Editor Management
 
-import { cvData, defaultMessage } from './config.js';
+import { cvData, defaultMessage, STORAGE_CODE_KEY } from './config.js';
 import { CVDataSchema } from './validation.js';
-import { loadSavedData, saveCVData, saveEditorMode, clearSavedData } from './storage.js';
-import { saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js';
+import { loadSavedData, saveCVData, saveEditorMode, clearSavedData, saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js';
 import { renderCV } from './cv-renderer.js';
 import { toggleFullscreen } from './ui-utils.js';
 import { applyStyles, getCurrentStyles, resetStyles } from './styles.js';
@@ -48,6 +47,7 @@ export async function initializeEditor() {
     }
 
     require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+    await new Promise((resolveMonaco) => {
     require(['vs/editor/editor.main'], async function () {
         let initialValue;
         let initialLanguage;
@@ -80,7 +80,7 @@ export async function initializeEditor() {
                     initialValue = defaultValue(savedData.result);
                     initialLanguage = 'javascript';
                     // Fix localStorage immediately
-                    localStorage.setItem('cv-data-code', initialValue);
+                    localStorage.setItem(STORAGE_CODE_KEY, initialValue);
                 }
             } catch (e) {
                 // Code is invalid - regenerate from result
@@ -88,7 +88,7 @@ export async function initializeEditor() {
                 initialValue = defaultValue(savedData.result);
                 initialLanguage = 'javascript';
                 // Fix localStorage immediately
-                localStorage.setItem('cv-data-code', initialValue);
+                localStorage.setItem(STORAGE_CODE_KEY, initialValue);
             }
         } else if (savedData.code) {
             // No result to validate against, use saved code as-is
@@ -161,6 +161,9 @@ export async function initializeEditor() {
                 if (fabIcon) fabIcon.className = 'fas fa-compress';
             }
         }
+
+        resolveMonaco();
+    });
     });
 
     return savedData;
@@ -294,7 +297,7 @@ export async function setEditorMode(mode) {
         editor.setValue(newValue);
 
         if (mode !== 'css' && !draft) {
-            localStorage.setItem('cv-data-code', newValue);
+            localStorage.setItem(STORAGE_CODE_KEY, newValue);
         }
 
         const savedCursor = loadCursorPosition(mode);

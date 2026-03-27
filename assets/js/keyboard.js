@@ -195,7 +195,7 @@ on('chat:save-settings', () => {
     if (mode !== 'ai') return;
     if (aiScreen !== 'settings') return;
 
-    window.aiContainer.querySelector(
+    document.getElementById('aiContainer')?.querySelector(
         '[data-action="save-settings"]'
     )?.click();
 });
@@ -205,7 +205,7 @@ on('chat:go-to-settings', () => {
 
     if (mode !== 'ai') return;
 
-    window.aiContainer.querySelector(
+    document.getElementById('aiContainer')?.querySelector(
         '[data-action="open-settings"]'
     )?.click();
 });
@@ -216,7 +216,7 @@ on('chat:close-settings', () => {
     if (mode !== 'ai') return;
     if (aiScreen !== 'settings') return;
 
-    window.aiContainer.querySelector(
+    document.getElementById('aiContainer')?.querySelector(
         '[data-action="back-to-chat"]'
     )?.click();
 });

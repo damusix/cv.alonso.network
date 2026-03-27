@@ -43,39 +43,25 @@ async function loadDefaultStyles() {
     }
 }
 
-export function applyStyles(css) {
+function getOrCreateStyleTag() {
     let styleTag = document.getElementById('cv-custom-styles');
-
     if (!styleTag) {
         styleTag = document.createElement('style');
         styleTag.id = 'cv-custom-styles';
         document.head.appendChild(styleTag);
     }
+    return styleTag;
+}
 
-    styleTag.textContent = css;
+export function applyStyles(css) {
+    getOrCreateStyleTag().textContent = css;
     saveStyles(css);
 }
 
 export async function loadAndApplyStyles() {
     const savedStyles = loadSavedStyles();
-    let stylesToApply;
-
-    if (savedStyles) {
-        stylesToApply = savedStyles;
-    } else {
-        stylesToApply = await loadDefaultStyles();
-    }
-
-    let styleTag = document.getElementById('cv-custom-styles');
-
-    if (!styleTag) {
-        styleTag = document.createElement('style');
-        styleTag.id = 'cv-custom-styles';
-        document.head.appendChild(styleTag);
-    }
-
-    styleTag.textContent = stylesToApply;
-
+    const stylesToApply = savedStyles || await loadDefaultStyles();
+    getOrCreateStyleTag().textContent = stylesToApply;
     return stylesToApply;
 }
 
