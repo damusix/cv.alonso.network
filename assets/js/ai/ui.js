@@ -485,12 +485,18 @@ async function handleSendMessage() {
                         typing.querySelector('.ai-message-content').innerHTML =
                             `<em class="ai-tool-status">${chunk}...</em>`;
                     }
+                    // Also update status bar inside assistant bubble
+                    ensureAssistantBubble(bubbleState, messagesEl);
+                    updateBubbleStatus(bubbleState.assistantBubble, chunk);
                     scrollMessagesToBottom();
                     break;
                 }
 
                 case 'token': {
                     ensureAssistantBubble(bubbleState, messagesEl);
+                    // Hide status bar while text is streaming — tokens are visible feedback
+                    const statusBar = bubbleState.assistantBubble?.querySelector('.ai-bubble-status');
+                    if (statusBar) statusBar.hidden = true;
                     fullResponse += chunk;
                     appendToken(bubbleState.contentEl, fullResponse);
                     break;
@@ -567,6 +573,7 @@ async function handleSendMessage() {
                 case 'done': {
                     flushRemainingTokens();
                     removeGenWorking(bubbleState.contentEl);
+                    removeBubbleStatus(bubbleState.assistantBubble);
 
                     // Add "Apply All" button if there are multiple CV preview cards
                     if (bubbleState.contentEl) {
@@ -600,6 +607,7 @@ async function handleSendMessage() {
     });
 
     removeTypingIndicator();
+    removeBubbleStatus(bubbleState.assistantBubble);
     cleanupClarification();
     pendingClarificationRespond = null;
     // Disable any unanswered clarification cards
@@ -653,6 +661,22 @@ async function deleteMessageAndTail(msgEl, msgId) {
         msgEl.nextElementSibling.remove();
     }
     msgEl.remove();
+}
+
+function updateBubbleStatus(bubble, text) {
+    if (!bubble) return;
+    let bar = bubble.querySelector('.ai-bubble-status');
+    if (!bar) {
+        bubble.insertAdjacentHTML('beforeend',
+            '<div class="ai-bubble-status"><span class="ai-gen-step-spinner"></span><span class="ai-bubble-status-text"></span></div>');
+        bar = bubble.querySelector('.ai-bubble-status');
+    }
+    bar.querySelector('.ai-bubble-status-text').textContent = text + '...';
+    bar.hidden = false;
+}
+
+function removeBubbleStatus(bubble) {
+    bubble?.querySelector('.ai-bubble-status')?.remove();
 }
 
 function markButtonApplied(btn) {
@@ -786,7 +810,16 @@ export function applyCvFromAI(cvData, path, operation = 'set') {
 
         finalData = clone(saved.result);
 
-        if (operation === 'insert') {
+        if (operation === 'delete') {
+            const segments = path.split('.');
+            const index = Number(segments.pop());
+            const parentPath = segments.join('.');
+            const parent = parentPath ? reach(finalData, parentPath) : finalData;
+
+            if (Array.isArray(parent) && !isNaN(index)) {
+                parent.splice(index, 1);
+            }
+        } else if (operation === 'insert') {
             const segments = path.split('.');
             const index = Number(segments.pop());
             const parentPath = segments.join('.');

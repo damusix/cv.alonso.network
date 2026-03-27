@@ -33,7 +33,7 @@ export const AiStyleUpdateSchema = z.object({
 export const AiPartialUpdatesSchema = z.object({
     explanation: z.string().describe("Brief natural language explanation of what changes are being made and why. Do NOT include JSON or code blocks — just plain text sentences."),
     updates: z.array(z.object({
-        operation: z.enum(['set', 'insert']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index. Use 'insert' when adding new items/sections, 'set' when editing existing ones."),
+        operation: z.enum(['set', 'insert', 'delete']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index. 'delete' removes the element at the path from its parent array. Use 'insert' when adding new items/sections, 'set' when editing existing ones, 'delete' when removing."),
         path: z.string().describe("Dot-notation path into the CV data object. Examples: 'personal', 'summary', 'sections.0', 'sections.2.items.1'"),
         data: z.union([
             PersonalSchema,
@@ -42,12 +42,13 @@ export const AiPartialUpdatesSchema = z.object({
             z.array(SectionSchema),
             z.array(SectionItemSchema),
             z.string(),
-        ]).describe("The data to set at the specified path. Must match the schema for that path.")
+            z.null(),
+        ]).optional().describe("The data to set at the specified path. Required for 'set' and 'insert'. Not needed for 'delete'.")
     })).min(1).describe("Array of partial updates to apply to the CV"),
 });
 
 export const AiPartialUpdateSchema = z.object({
-    operation: z.enum(['set', 'insert']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index (e.g. path 'sections.0.items.0' with 'insert' adds a new first item without removing existing ones). Use 'insert' when adding new items/sections, 'set' when editing existing ones."),
+    operation: z.enum(['set', 'insert', 'delete']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index. 'delete' removes the element at the path from its parent array (e.g. path 'sections.2' with 'delete' removes the third section). Use 'insert' when adding, 'set' when editing, 'delete' when removing."),
     path: z.string().describe("Dot-notation path into the CV data object where the update should be applied. Examples: 'personal' for contact info, 'summary' for the summary, 'sections.0' for the first section, 'sections.2.items.1' for the second item in the third section"),
     data: z.union([
         PersonalSchema,
@@ -56,5 +57,6 @@ export const AiPartialUpdateSchema = z.object({
         z.array(SectionSchema),
         z.array(SectionItemSchema),
         z.string(),
-    ]).describe("The data to set at the specified path. Must match the schema for that path: PersonalSchema for 'personal', string for 'summary', SectionSchema for a section, SectionItemSchema for an item")
+        z.null(),
+    ]).optional().describe("The data to set at the specified path. Required for 'set' and 'insert'. Not needed for 'delete'.")
 });

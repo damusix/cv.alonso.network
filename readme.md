@@ -1,7 +1,7 @@
 # CV Generator
 
 
-Create and edit your CVs using JavaScript. Style it if you want. Use the AI chat assistant to generate, modify, or tailor your resume to a specific job posting. Print it, save it as PDF, and send it to your recruiter.
+Create and edit your CVs using JavaScript. Style it if you want. Use the AI chat assistant to generate, modify, or tailor your resume to a specific job posting. Upload documents for context, let the AI learn about you over time, and search the web for job postings. Print it, save it as PDF, and send it to your recruiter.
 
 ![Preview](screenshot.png)
 
@@ -86,6 +86,66 @@ Your CV data follows this schema:
 
 ---
 
+## AI Chat Assistant
+
+
+The AI chat tab is a full-featured LLM-powered assistant for building and refining your CV. It supports multiple providers, web research, document uploads, and learns about you over time.
+
+### Providers
+
+Configure one or more LLM providers with your own API keys:
+
+- **Anthropic** (Claude) - default small: `claude-haiku-4-5`, large: `claude-opus-4-5`
+- **OpenAI** (GPT) - default small: `gpt-5-mini`, large: `gpt-5.2`
+- **Google** (Gemini) - default small: `gemini-3-flash-preview`, large: `gemini-3-pro-preview`
+
+Each provider uses two models: a **small model** (cheap, for routing and data generation) and a **response model** (capable, for reasoning and conversation). You can customize the model names in Settings.
+
+### What It Can Do
+
+- **Generate a full CV** from a conversation, uploaded resume, or job posting URL
+- **Update specific sections** — add a new job, edit skills, change your summary
+- **Modify styling** — change fonts, colors, spacing, layout via natural language
+- **Research the web** — fetch job postings, search for salary data, crawl company websites
+- **Ask clarifying questions** — presents clickable options when your request is ambiguous
+- **Give career advice** — resume tips, best practices, ATS optimization guidance
+
+### User Profile
+
+Write information about yourself in markdown (Settings > User Profile). This context is included in every AI conversation so the assistant knows your background without you having to repeat it.
+
+### Document Uploads
+
+Upload files in Settings or attach them directly in chat. Supported formats:
+
+- **PDF** — text extracted via pdf.js
+- **DOCX** — text extracted via mammoth.js
+- **Images** (PNG, JPG, etc.) — described by the AI vision model
+- **Text files** (TXT, MD, CSV) — read directly
+
+Each document is automatically summarized by the small model. Summaries are included in every conversation as context. The AI can also read the full extracted text on demand using the `read_document` tool.
+
+Files attached in chat are also saved to the documents store and linked to the message they were attached to.
+
+### Learned Facts
+
+As you chat, the AI can save interesting facts it learns about you — career goals, preferences, achievements, industry interests. These are deduplicated against your profile and existing facts using the small model, and persist across conversations. You can think of it as the AI building a memory of who you are over time.
+
+### Web Search & Research
+
+Two search providers are available (configure API keys in Settings):
+
+- **Brave Search** — fast web search
+- **Tavily** — AI-powered search with answers, plus page extraction, website crawling, and URL mapping
+
+The AI also has a `web_fetch` tool for reading any URL directly. All external requests use [Puter.js](https://puter.com) for CORS-free fetching — no backend proxy needed.
+
+### Privacy
+
+All data stays in your browser. CV data lives in localStorage, AI chat history and documents in IndexedDB. API calls go directly from your browser to the LLM/search providers — nothing passes through any intermediary server.
+
+---
+
 ## Extensibility
 
 
@@ -134,7 +194,7 @@ Desktop view features a resizable split-pane layout. Drag the divider to adjust 
 
 ### Markdown Support
 
-Use markdown syntax in `summary` and `content` fields: `**bold**`, `*italic*`, `` `code` ``, `[links](url)`
+Use markdown syntax in `summary` and `content` fields: `**bold**`, `*italic*`, `` `code` ``, `[links](url)`. Both user and assistant messages in the AI chat also render full markdown.
 
 ### Font Awesome Icons
 
@@ -149,10 +209,6 @@ Add icons to links using Font Awesome classes. Browse icons at [fontawesome.com]
 ### Auto-save & Export
 
 Changes auto-save to localStorage (including drafts and cursor position per mode). Export to `.cvml` files with tagged sections: `[cv-data js]` for data, `[cv-styles]` for CSS.
-
-### AI Chat Assistant
-
-Use the AI chat to generate, edit, or tailor your CV for a specific job posting. The assistant can create a full CV from scratch, update individual sections, or adjust your styling — all through natural language conversation. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini) with your own API keys. Web search is available via Brave Search for pulling in job descriptions or company info. All prompts and data stay in your browser and go directly to the LLM provider — nothing passes through Alonso Network servers.
 
 ### Print Optimization
 
@@ -184,7 +240,7 @@ Print-optimized layout with proper page breaks, 0.75in margins, and clean stylin
 
 ### Architecture
 
-Single-page application with modular JavaScript architecture:
+Single-page application with modular JavaScript architecture. No build step — all files are served as static assets.
 
     index.html
     ├── assets/
@@ -192,9 +248,9 @@ Single-page application with modular JavaScript architecture:
     │   │   ├── base.css          # CSS reset, tokens, typography
     │   │   ├── cv.css            # CV layout and styling
     │   │   ├── editor.css        # VSCode-style editor panel
+    │   │   ├── ai-chat.css       # AI chat, settings, clarification cards
     │   │   ├── split-pane.css    # Split-pane layout system
     │   │   ├── action-menu.css   # Floating action menu
-    │   │   ├── ai-chat.css       # AI chat panel styling
     │   │   ├── modal.css         # Modal dialog styling
     │   │   ├── toast.css         # Toast notification styling
     │   │   └── print.css         # Print-specific styles
@@ -206,104 +262,66 @@ Single-page application with modular JavaScript architecture:
     │       ├── cv-renderer.js    # CV rendering functions
     │       ├── editor.js         # Monaco editor setup
     │       ├── split-pane.js     # Split-pane layout management
-    │       ├── observable.js     # Event system using LogosDX Observer
+    │       ├── observable.js     # Event system (LogosDX Observer)
     │       ├── styles.js         # Custom styles management
-    │       ├── exports.js        # Import/export functionality
+    │       ├── exports.js        # Import/export (.cvml, PDF)
     │       ├── action-menu.js    # Action menu behavior
     │       ├── modal.js          # Help modal management
     │       ├── toast.js          # Toast notification system
     │       ├── keyboard.js       # Keyboard shortcuts
     │       ├── markdown.js       # Markdown rendering
-    │       ├── ui-utils.js       # UI utility functions (fullscreen, etc.)
-    │       ├── utils.js          # General utility helpers
+    │       ├── ui-utils.js       # Fullscreen toggle
+    │       ├── utils.js          # General utilities (LogosDX Utils)
     │       ├── ai/
-    │       │   ├── langchain.js  # LangChain LLM integration
-    │       │   ├── prompts.js    # AI system prompts and routing
-    │       │   ├── schemas.js    # AI data schemas
-    │       │   ├── search.js     # Brave web search integration
-    │       │   ├── templates.js  # AI prompt templates
-    │       │   └── ui.js         # AI chat panel UI
+    │       │   ├── langchain.js  # CvAgent — LLM tool-calling, streaming
+    │       │   ├── prompts.js    # System prompts, CV writing guide
+    │       │   ├── schemas.js    # AI data schemas (Zod)
+    │       │   ├── search.js     # Brave Search + Tavily API
+    │       │   ├── templates.js  # Chat/settings HTML templates
+    │       │   ├── memory.js     # Token budgeting, summarization
+    │       │   └── ui.js         # AI chat panel coordinator
     │       └── db/
-    │           └── db.js         # IndexedDB persistence for AI data
+    │           └── db.js         # IndexedDB (Dexie v3)
 
 ### Core Technologies
 
 - **Monaco Editor** (v0.52.2) - Code editor with syntax highlighting
 - **markdown-it** (v14.1.0) - Markdown parsing
 - **Zod** (v3.23.8) - Runtime schema validation
-- **Font Awesome** (v6.7.1) - Icon library
-- **LangChain** - AI orchestration for multi-provider LLM support
-- **IndexedDB** - Client-side database for AI conversation history
+- **Font Awesome** (v7.0.1) - Icon library
+- **LangChain JS** - AI orchestration (Anthropic, OpenAI, Google Gemini)
+- **Dexie** (v4.0.11) - IndexedDB wrapper
+- **Puter.js** (v2) - CORS-free HTTP fetching via WISP protocol
+- **pdf.js** (v4.4.168) - PDF text extraction (lazy-loaded)
+- **mammoth.js** (v1.8.0) - DOCX text extraction (lazy-loaded)
+- **LogosDX** - Observer pattern and utility library
 
-### Storage System
+### Storage
 
-localStorage keys:
+**localStorage** — CV data, editor state, cursor positions, drafts, pane sizes
 
-- `cv-data-code` - Raw editor content (JavaScript)
-- `cv-data-result` - Evaluated JSON result from code
-- `cv-editor-mode` - Current editor mode ('javascript' | 'css')
-- `cv-custom-styles` - Custom CSS styles
-- `cv-editor-state` - Editor UI state (fullscreen, etc.)
-- `cv-editor-cursor-{mode}` - Cursor position per mode
-- `cv-editor-draft-{mode}` - Draft content per mode
-- `cv-split-pane-sizes` - Saved pane widths for desktop layout
+**IndexedDB** (via Dexie v3):
 
-### Validation
-
-Zod schemas enforce:
-
-- Valid email format
-- Valid URLs for links
-- Required fields (name, email, phone, location)
-- At least one section with one item
-- Proper data types throughout
-
-### Rendering Pipeline
-
-**Initialization:**
-
-1. Load and apply custom styles from localStorage
-2. Initialize Monaco Editor (lazy-loaded from CDN)
-3. Load saved data/drafts from localStorage
-4. Restore cursor position per mode
-
-**On Apply Changes:**
-
-1. Parse code based on mode (Function evaluation for JavaScript, direct CSS for Styles)
-2. Validate with Zod schema (for JavaScript mode)
-3. Render markdown with markdown-it (for CV content)
-4. Build DOM structure
-5. Save code and result to localStorage
-6. Clear draft (since changes are applied)
-
-**Auto-save:**
-
-- Draft content saved on every edit (debounced)
-- Cursor position tracked on every change
-- Editor state (fullscreen, etc.) persisted
+| Table | Fields | Purpose |
+|-------|--------|---------|
+| `chats` | id, title, summary, timestamps | Chat conversations |
+| `messages` | id, chatId, role, content, timestamp, documentIds | Chat messages with document links |
+| `settings` | key → value | Provider configs, API keys, user profile, learned facts |
+| `documents` | id, name, type, size, data, summary, extractedText | Uploaded files with extracted content |
 
 ### Browser Compatibility
 
 **Required:**
 
 - ES6+ support (modules, arrow functions, template literals)
-- localStorage API
+- localStorage and IndexedDB APIs
 - CSS Grid & Flexbox
-- Modern event APIs
 
 **Recommended:**
 
 - Chrome/Edge 90+
 - Firefox 88+
 - Safari 14+
-
-### Performance
-
-- Monaco Editor lazy-loaded from CDN (~2MB)
-- Other dependencies (markdown-it, Font Awesome, Zod) loaded from CDN
-- localStorage limited to ~5-10MB (CV data typically <100KB)
-- Async initialization for styles and editor setup
-- Debounced draft auto-save (500ms delay)
 
 ---
 

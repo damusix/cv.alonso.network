@@ -265,23 +265,26 @@ export function messageTemplate(msg) {
 }
 
 export function cvPreviewCard(cvData, path, operation) {
+    const isDelete = operation === 'delete';
     const jsonStr = JSON.stringify(cvData, null, 4);
-    const preview = jsonStr.length > 500 ? jsonStr.slice(0, 500) + '\n...' : jsonStr;
-    const opLabel = operation === 'insert' ? 'Insert at' : 'Partial update';
+    const preview = isDelete ? '' : (jsonStr.length > 500 ? jsonStr.slice(0, 500) + '\n...' : jsonStr);
+    const opLabel = isDelete ? 'Remove' : operation === 'insert' ? 'Insert at' : 'Partial update';
     const pathLabel = path ? `${opLabel}: ${path}` : 'Full CV generation';
+    const btnLabel = isDelete ? 'Remove from CV' : 'Apply to CV';
+    const btnClass = isDelete ? 'ai-btn-danger' : 'ai-btn-primary';
 
     return `
-    <div class="ai-cv-preview">
+    <div class="ai-cv-preview${isDelete ? ' ai-cv-preview-delete' : ''}">
         <div class="ai-cv-preview-header">
             <span>${pathLabel}</span>
         </div>
-        <pre class="ai-cv-preview-code"><code>${escapeHtml(preview)}</code></pre>
-        <button class="ai-btn-primary ai-apply-btn"
+        ${preview ? `<pre class="ai-cv-preview-code"><code>${escapeHtml(preview)}</code></pre>` : ''}
+        <button class="${btnClass} ai-apply-btn"
                 data-action="apply-cv"
                 data-cv='${escapeAttr(JSON.stringify(cvData))}'
                 data-path='${path ? escapeAttr(path) : ''}'
                 data-operation='${operation || 'set'}'>
-            Apply to CV
+            ${btnLabel}
         </button>
     </div>`;
 }

@@ -8,7 +8,7 @@ A static HTML website for creating, editing, and exporting CVs/resumes. No build
 
 ## How It Works
 
-The app loads `index.html`, which pulls in static CSS and JS module files from `assets/`. All dependencies (Monaco Editor, markdown-it, Zod, Font Awesome, LangChain, Dexie) load from CDNs. User data persists in `localStorage` (CV data, editor state) and IndexedDB via Dexie (AI chat history, settings). There is no backend.
+The app loads `index.html`, which pulls in static CSS and JS module files from `assets/`. All dependencies (Monaco Editor, markdown-it, Zod, Font Awesome, LangChain, Dexie, Puter.js) load from CDNs. User data persists in `localStorage` (CV data, editor state) and IndexedDB via Dexie (AI chat history, settings, documents). There is no backend.
 
 The core loop is:
 
@@ -32,6 +32,7 @@ assets/
     base.css            # Reset, design tokens, typography
     cv.css              # CV layout and component styles
     editor.css          # Editor panel styling (VSCode-like)
+    ai-chat.css         # AI chat panel, settings, messages, clarification cards
     split-pane.css      # Resizable split-pane layout
     action-menu.css     # Floating action button menu
     modal.css           # Dialog/modal styles
@@ -56,13 +57,13 @@ assets/
     ui-utils.js         # Fullscreen toggle with context-aware focus detection
   js/
     db/
-      db.js               # Dexie v2 IndexedDB wrapper (chats, messages, settings)
+      db.js               # Dexie v3 IndexedDB wrapper (chats, messages, settings, documents)
     ai/
       langchain.js        # CvAgent class — LangChain tool-calling, streaming, structured output
       ui.js               # AI chat UI coordinator — settings/chat screens, event delegation
       schemas.js          # Zod schemas for intent classification and AI response validation
-      prompts.js          # System prompts for all AI handlers (router, generation, updates)
-      search.js           # Brave Search API integration
+      prompts.js          # System prompts, CV writing guide, date context
+      search.js           # Brave Search and Tavily API integration
       templates.js        # HTML template functions for chat UI components
       memory.js           # Token estimation, message trimming, summary management
 ```
@@ -143,7 +144,7 @@ Provides `toggleFullscreen()` which cycles between fullscreen CV, fullscreen edi
 
 The AI chat uses LangChain JS loaded from CDN (ESM). Three LLM models are configured per provider:
 
-- **Router model** (cheap/small, e.g. Haiku) — intent classification, conversation summarization, inner data generation calls
+- **Router model** (cheap/small, e.g. Haiku) — intent classification, conversation summarization, inner data generation calls, fact deduplication, document summarization
 - **Generator model** (capable, e.g. Opus) — main conversational reasoning, tool orchestration
 - Tool-bound variants of the generator model are created at configure() time for different handler contexts
 
@@ -162,9 +163,34 @@ Every user message goes through `#classifyIntent` first, which uses the router m
 **Why the two-phase pattern:** The outer model reasons about *what* to change; the inner model (cheap) does the mechanical data generation. If the inner model produces bad output, the outer model can retry with refined instructions — creating a self-correcting feedback loop without user intervention.
 
 
+### System Prompt Construction
+
+All system prompts are assembled by `#buildSystemPrompt(basePrompt)` which prepends context in this order:
+
+1. **ISO date** (`DATE_CONTEXT`) — always first
+2. **User profile** (`#userProfile`) — markdown the user wrote about themselves in Settings
+3. **Learned facts** (`#learnedFacts`) — facts the agent saved about the user during conversations
+4. **Document summaries** (`#documentSummaries`) — summaries of uploaded documents
+5. **Conversation summary** (`#summary`) — compressed history from previous messages
+6. **Base prompt** — the handler-specific system prompt (includes CV writing guide for content handlers)
+
+Content-related prompts (generation, partial update, chitchat, clarification, inner partial update) also include a `CV_WRITING_GUIDE` constant with resume best practices and ATS optimization tips.
+
+
 ### Chat Memory
 
 Chat history is read from IndexedDB (not the DOM). A token-aware trimming system (`memory.js`) keeps messages within a 32K token budget. When messages are trimmed, the router model generates a conversation summary that's persisted on the chat record and prepended to all system prompts via `#buildSystemPrompt`.
+
+Messages with linked documents (`documentIds` field) are augmented with their document summaries when building chat history, so the LLM sees document context inline.
+
+
+### User Context System
+
+The agent maintains several layers of persistent user context:
+
+- **User Profile** (`user:profile` in settings) — markdown text the user writes about themselves, editable via a modal in Settings. Injected into all system prompts.
+- **Learned Facts** (`user:learned-facts` in settings) — facts the agent discovers during conversation and saves via the `save_user_fact` tool. The router model deduplicates against existing profile and facts before saving.
+- **Uploaded Documents** (`documents` table) — files uploaded in Settings or attached in chat. Text is extracted client-side (pdf.js for PDFs, mammoth.js for DOCX, direct read for text files, vision model for images). The router model generates summaries which are injected into system prompts. Full extracted text is stored for retrieval via the `read_document` tool.
 
 
 ### Tool System
@@ -173,18 +199,58 @@ Tools are defined as arrays of `{ name, description, schema }` objects and bound
 
 Available tool sets:
 
-- `AGENT_TOOLS` — read_resume, read_styles, web_fetch, web_search (available in all streaming handlers)
+- `AGENT_TOOLS` — available in all streaming handlers:
+    - `read_resume` — reads current CV data from the editor
+    - `read_styles` — reads current custom CSS from the editor
+    - `web_fetch` — fetches and extracts text from a web page (via Puter.js for CORS-free access)
+    - `web_search` — searches the web via Brave Search API
+    - `tavily_search` — searches the web via Tavily API (with AI-generated answers)
+    - `tavily_extract` — extracts clean markdown content from URLs via Tavily
+    - `tavily_crawl` — crawls a website following links to gather content from multiple pages
+    - `tavily_map` — maps a website's URL structure
+    - `read_document` — reads the full extracted text of an uploaded document by name
+    - `save_user_fact` — saves an interesting fact about the user (deduplicated via router model)
+    - `ask_clarification` — presents the user with a question and clickable options, pausing the stream until they respond
 - `GENERATION_TOOLS` — set_personal_info, set_summary, add_section (full generation only)
 - `PARTIAL_UPDATE_TOOLS` — generate_partial_update, accept_partial_update
 - `STYLE_UPDATE_TOOLS` — generate_style_update, accept_style_update
 
 
-### IndexedDB Schema (Dexie v2)
+### Clarification Tool
+
+The `ask_clarification` tool uses a Promise-based pause mechanism. When called, `#executeTool` emits an `ai:clarification-request` event carrying a `respond` callback. The UI renders a card with option buttons and a custom text input inside the assistant bubble. The Promise resolves when the user clicks an option or submits custom text, and streaming resumes. If the stream is aborted, the Promise rejects and unanswered cards are visually disabled.
+
+
+### CORS-Free Networking
+
+All external HTTP requests (web_fetch, Brave Search, Tavily API) use Puter.js (`puter.net.fetch`) for CORS-free fetching. Puter.js is loaded globally in `index.html` and uses the WISP protocol (websocket-based proxy with client-side TLS) — no API keys or backend needed.
+
+
+### Error Handling
+
+API errors are parsed by `formatApiError()` in ui.js which translates HTTP status codes and provider-specific errors into user-friendly messages (e.g., 529 → "API overloaded, try again", 401 → "Invalid API key"). Errors are displayed in three paths: stream creation failure, yielded error events during streaming, and iteration errors.
+
+
+### IndexedDB Schema (Dexie v3)
 
 ```
-chats:    ++id, title, summary, createdAt, updatedAt
-messages: ++id, chatId, role, content, timestamp
-settings: key → value (provider configs, activeProvider, search config, memory settings)
+chats:     ++id, title, summary, createdAt, updatedAt
+messages:  ++id, chatId, role, content, timestamp, documentIds
+settings:  key → value (provider configs, activeProvider, search config, tavily config, user profile, learned facts)
+documents: ++id, name, type, size, createdAt, data, summary, extractedText
+```
+
+
+### Settings Keys
+
+```
+provider:{id}      → { apiKey, smallModel, responseModel }
+activeProvider     → string
+search:config      → { apiKey }           (Brave Search)
+tavily:config      → { apiKey }           (Tavily)
+user:profile       → string               (markdown)
+user:learned-facts → string[]             (array of fact strings)
+lastChatId         → number
 ```
 
 
@@ -217,3 +283,5 @@ settings: key → value (provider configs, activeProvider, search config, memory
 - Sections are targetable by their `id` attribute for custom styling
 - No test infrastructure — all testing is manual via browser
 - CDN dependencies only — no npm, no node_modules
+- Both user and assistant chat messages render full block-level markdown
+- Puter.js handles all CORS-free external HTTP requests (no backend proxy needed)

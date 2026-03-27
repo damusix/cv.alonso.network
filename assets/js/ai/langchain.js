@@ -918,7 +918,7 @@ export class CvAgent {
             );
 
             if (classifyErr) {
-                yield { type: 'error', chunk: `Failed to classify intent: ${classifyErr.message}` };
+                yield { type: 'error', chunk: `Something went wrong understanding your message. Please try again. (${classifyErr.message})` };
                 yield { type: 'done', chunk: null };
                 return;
             }
@@ -1040,7 +1040,7 @@ export class CvAgent {
         this.#generationAccumulator = null;
 
         if (!acc.personal || acc.sections.length === 0) {
-            yield { type: 'error', chunk: 'Generation incomplete — personal info or sections missing.' };
+            yield { type: 'error', chunk: 'CV generation was incomplete — some required information (personal info or sections) is missing. Try providing more details and asking again.' };
             return;
         }
 
@@ -1052,7 +1052,7 @@ export class CvAgent {
 
         const [cvData, validationErr] = attemptSync(() => CVDataSchema.parse(assembled));
         if (validationErr) {
-            yield { type: 'error', chunk: `CV validation failed: ${validationErr.message}` };
+            yield { type: 'error', chunk: `The generated CV data didn't pass validation. Please try again. (${validationErr.message})` };
             return;
         }
 
@@ -1096,7 +1096,7 @@ export class CvAgent {
 
         // Yield accepted proposals
         if (this.#pendingChanges.length === 0) {
-            yield { type: 'error', chunk: 'No update proposals were accepted.' };
+            yield { type: 'error', chunk: 'The AI was unable to make the requested changes. Try rephrasing your request or being more specific about what you want to change.' };
             return;
         }
 
@@ -1139,7 +1139,7 @@ export class CvAgent {
         }
 
         if (this.#pendingChanges.length === 0) {
-            yield { type: 'error', chunk: 'No style proposals were accepted.' };
+            yield { type: 'error', chunk: 'The AI was unable to generate the style changes. Try rephrasing your request or being more specific about what you want to change.' };
             return;
         }
 

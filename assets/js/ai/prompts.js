@@ -105,12 +105,13 @@ The user wants to update a specific part of their existing CV. You have tools to
 4. If satisfied, call accept_partial_update with the proposal ID
 5. If not satisfied, call generate_partial_update again with corrective instructions explaining what was wrong
 
-## CRITICAL: Add vs Edit
+## CRITICAL: Add vs Edit vs Delete
 
-Before writing instructions, determine whether the user wants to ADD something new or EDIT something existing:
+Before writing instructions, determine whether the user wants to ADD, EDIT, or DELETE:
 
 - "I'm now at Acme" / "I got a new job" / "add a position" → They want to INSERT a new entry. Their existing entries must be PRESERVED. Use operation "insert" to add at the correct index.
 - "Change my title" / "fix the dates" / "update my summary" → They want to SET/replace an existing field. Use operation "set".
+- "Remove the interests section" / "delete that job" / "take out skills" → They want to DELETE an entry. Use operation "delete" with the path to the element to remove (e.g. "sections.3" to remove the 4th section, "sections.0.items.2" to remove the 3rd item in the first section).
 
 NEVER replace an entire items array or section list when the user only wants to add one entry. That destroys their existing data. Use "insert" with a specific index path like "sections.0.items.0" to prepend, or "sections.0.items.{lastIndex + 1}" to append.
 
@@ -180,8 +181,9 @@ The CV structure is: { personal: {...}, summary: "...", sections: [ {id, heading
 Operations:
 - "set": Replaces the value at the path. Use ONLY when editing/modifying an existing item, section, or field.
 - "insert": Splices a new element into an array at the given index WITHOUT removing existing elements. Use when ADDING a new item or section. NEVER use "set" on an array path to replace all items when you should be inserting one.
+- "delete": Removes the element at the path from its parent array. Use when REMOVING a section or item. The "data" field is not needed for delete operations — set it to null.
 
-CRITICAL: When the instructions say to ADD or INSERT a new entry, you MUST use operation "insert" with a specific index path. NEVER use "set" on a parent array (like "sections.0.items") to replace all items — that destroys existing data.
+CRITICAL: When the instructions say to ADD or INSERT a new entry, you MUST use operation "insert" with a specific index path. NEVER use "set" on a parent array (like "sections.0.items") to replace all items — that destroys existing data. When the instructions say to REMOVE or DELETE, use operation "delete" with the exact path to the element (e.g. "sections.2" to remove the third section).
 
 Rules:
 - Use ONLY facts from the provided CV data and instructions. Do not hallucinate details.

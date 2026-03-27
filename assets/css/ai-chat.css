@@ -426,6 +426,19 @@
     text-transform: uppercase;
 }
 
+.ai-bubble-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0 2px;
+    font-size: 11px;
+    color: var(--ed-text-muted);
+    border-top: 1px solid var(--ed-border);
+    margin-top: 6px;
+}
+
+.ai-bubble-status-text { opacity: 0.8; }
+
 .ai-message-content { word-break: break-word; }
 .ai-message-content > :first-child { margin-top: 0; }
 .ai-message-content > :last-child { margin-bottom: 0; }
@@ -633,6 +646,9 @@
 .ai-file-remove:hover { color: #fff; }
 
 /* ─── CV Preview Card ──────────────────────────────────────────────────────── */
+
+.ai-cv-preview-delete { border-color: #f44; }
+.ai-cv-preview-delete .ai-cv-preview-header { background: rgba(255, 68, 68, 0.13); color: #f88; }
 
 .ai-cv-preview {
     border: 1px solid var(--ed-accent);
