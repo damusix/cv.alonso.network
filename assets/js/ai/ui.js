@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js';
-import { emit, on } from '../observable.js';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js';
-import { configureSearch } from './search.js';
-import { renderCV } from '../cv-renderer.js';
-import { saveCVData, loadSavedData } from '../storage.js';
-import { applyStyles, getCurrentStyles } from '../styles.js';
-import { renderMarkdown } from '../markdown.js';
+import { db } from '../db/db.js?v=2026.03.27.1';
+import { emit, on } from '../observable.js?v=2026.03.27.1';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.03.27.1';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.03.27.1';
+import { configureSearch } from './search.js?v=2026.03.27.1';
+import { renderCV } from '../cv-renderer.js?v=2026.03.27.1';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.03.27.1';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.03.27.1';
+import { renderMarkdown } from '../markdown.js?v=2026.03.27.1';
 import {
     settingsScreen,
     chatScreen,
@@ -24,7 +24,7 @@ import {
     profileEditDialog,
     clarificationCard,
     PROVIDERS
-} from './templates.js';
+} from './templates.js?v=2026.03.27.1';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -1052,7 +1052,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.03.27.1');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1073,12 +1073,22 @@ function setupEventDelegation(container) {
 
             case 'clarification-respond': {
                 const option = actionEl.dataset.option;
-                if (option && pendingClarificationRespond) {
+                if (!option) break;
+                const card = actionEl.closest('.ai-clarification');
+                if (card) card.classList.add('ai-clarification-answered');
+
+                if (pendingClarificationRespond) {
+                    // Stream is still active — resolve the tool Promise
                     const respondFn = pendingClarificationRespond;
                     pendingClarificationRespond = null;
-                    const card = actionEl.closest('.ai-clarification');
-                    if (card) card.classList.add('ai-clarification-answered');
                     respondFn(`User selected: ${option}`);
+                } else {
+                    // Stream ended — send as a follow-up message
+                    const textarea = document.getElementById('aiInput');
+                    if (textarea) {
+                        textarea.value = option;
+                        await handleSendMessage();
+                    }
                 }
                 break;
             }
@@ -1086,12 +1096,22 @@ function setupEventDelegation(container) {
             case 'clarification-respond-custom': {
                 const input = actionEl.closest('.ai-clarification-custom')?.querySelector('.ai-clarification-input');
                 const text = input?.value?.trim();
-                if (text && pendingClarificationRespond) {
+                if (!text) break;
+                const card = actionEl.closest('.ai-clarification');
+                if (card) card.classList.add('ai-clarification-answered');
+
+                if (pendingClarificationRespond) {
+                    // Stream is still active — resolve the tool Promise
                     const respondFn = pendingClarificationRespond;
                     pendingClarificationRespond = null;
-                    const card = actionEl.closest('.ai-clarification');
-                    if (card) card.classList.add('ai-clarification-answered');
                     respondFn(`User responded: ${text}`);
+                } else {
+                    // Stream ended — send as a follow-up message
+                    const textarea = document.getElementById('aiInput');
+                    if (textarea) {
+                        textarea.value = text;
+                        await handleSendMessage();
+                    }
                 }
                 break;
             }
@@ -1275,7 +1295,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js');
+    const { CvAgent } = await import('./langchain.js?v=2026.03.27.1');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();

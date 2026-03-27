@@ -1,6 +1,6 @@
 // CV Rendering Functions
 
-import { parseMarkdown } from './markdown.js';
+import { parseMarkdown } from './markdown.js?v=2026.03.27.1';
 
 export function getDocumentTitle(data) {
     const title = [data.name ,'CV', (new Date().toISOString().split('T')[0])];

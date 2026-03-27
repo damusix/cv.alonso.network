@@ -1,6 +1,6 @@
 // Modal Dialog Management
 
-import { renderDocMarkdown } from './markdown.js';
+import { renderDocMarkdown } from './markdown.js?v=2026.03.27.1';
 
 const FIRST_VISIT_KEY = 'cv-first-visit';
 

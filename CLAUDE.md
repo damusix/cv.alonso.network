@@ -285,3 +285,23 @@ lastChatId         → number
 - CDN dependencies only — no npm, no node_modules
 - Both user and assistant chat messages render full block-level markdown
 - Puter.js handles all CORS-free external HTTP requests (no backend proxy needed)
+
+## Cache Busting
+
+All local JS module imports use a `?v=VERSION` query string for cache busting. The version string is also set in `assets/js/version.js` and in the `<script>` tag in `index.html`.
+
+**IMPORTANT: When making changes to any JS file, bump the version string in ALL of these locations:**
+
+1. `assets/js/version.js` — the `VERSION` export
+2. `index.html` — the `<script type="module" src="assets/js/main.js?v=...">` tag
+3. All `import ... from '...(path).js?v=...'` statements across all JS files (use `sed` to batch-replace the old version with the new one)
+
+The version format is `YYYY.MM.DD.N` (date + sequential number for same-day changes).
+
+To bump all versions at once:
+
+```
+sed -i '' "s/?v=OLD_VERSION/?v=NEW_VERSION/g" assets/js/**/*.js assets/js/*.js index.html
+```
+
+Then update `assets/js/version.js` manually.

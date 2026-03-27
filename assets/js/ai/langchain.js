@@ -1,7 +1,7 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js';
+import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.03.27.1';
 import {
     AiIntentSchema,
     AiPartialUpdatesSchema,
@@ -10,7 +10,7 @@ import {
     LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js';
+} from './schemas.js?v=2026.03.27.1';
 import {
     ROUTER_SYSTEM_PROMPT,
     CHITCHAT_SYSTEM_PROMPT,
@@ -22,9 +22,9 @@ import {
     INNER_STYLE_UPDATE_PROMPT,
     DATE_CONTEXT,
     buildContextPrompt
-} from './prompts.js';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js';
-import { once, emit } from '../observable.js';
+} from './prompts.js?v=2026.03.27.1';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.03.27.1';
+import { once, emit } from '../observable.js?v=2026.03.27.1';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -250,7 +250,7 @@ const TOOL_STATUS_LABELS = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const LLM_TIMEOUT = 60_000;
-const MAX_TOOL_ROUNDS = 5;
+const MAX_TOOL_ROUNDS = 100;
 
 /**
  * Fetches a web page and extracts readable text content.
@@ -1190,7 +1190,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.03.27.1');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`

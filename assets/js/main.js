@@ -1,17 +1,17 @@
 // Main Entry Point
 
-import { cvData } from './config.js';
-import { renderCV } from './cv-renderer.js';
-import { initializeEditor, toggleEditor, setEditorMode, applyChanges, resetData } from './editor.js';
-import { initializeActionMenu, toggleActionMenu, openEditor, printCV } from './action-menu.js';
-import { initializeKeyboardShortcuts } from './keyboard.js';
-import { toggleFullscreen } from './ui-utils.js';
-import { loadAndApplyStyles } from './styles.js';
-import { initializeModal, showHelpModal, showPromptModal, showPrivacyModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js';
-import { exportCV, importCV } from './exports.js';
-import { initializeSplitPane, restoreEditorPaneState } from './split-pane.js';
-import { initializeToasts, notify } from './toast.js';
-import { on } from './observable.js';
+import { cvData } from './config.js?v=2026.03.27.1';
+import { renderCV } from './cv-renderer.js?v=2026.03.27.1';
+import { initializeEditor, toggleEditor, setEditorMode, applyChanges, resetData } from './editor.js?v=2026.03.27.1';
+import { initializeActionMenu, toggleActionMenu, openEditor, printCV } from './action-menu.js?v=2026.03.27.1';
+import { initializeKeyboardShortcuts } from './keyboard.js?v=2026.03.27.1';
+import { toggleFullscreen } from './ui-utils.js?v=2026.03.27.1';
+import { loadAndApplyStyles } from './styles.js?v=2026.03.27.1';
+import { initializeModal, showHelpModal, showPromptModal, showPrivacyModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js?v=2026.03.27.1';
+import { exportCV, importCV } from './exports.js?v=2026.03.27.1';
+import { initializeSplitPane, restoreEditorPaneState } from './split-pane.js?v=2026.03.27.1';
+import { initializeToasts, notify } from './toast.js?v=2026.03.27.1';
+import { on } from './observable.js?v=2026.03.27.1';
 
 // Async initialization
 (async function() {

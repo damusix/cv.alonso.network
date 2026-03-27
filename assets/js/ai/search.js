@@ -1,6 +1,6 @@
 // AI Search — Web search module using Brave Search API and Tavily API
 
-import { attempt } from '../utils.js';
+import { attempt } from '../utils.js?v=2026.03.27.1';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 

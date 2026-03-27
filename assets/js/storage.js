@@ -1,6 +1,6 @@
 // Local Storage Management
 
-import { STORAGE_CODE_KEY, STORAGE_RESULT_KEY, STORAGE_MODE_KEY, STORAGE_STYLES_KEY } from './config.js';
+import { STORAGE_CODE_KEY, STORAGE_RESULT_KEY, STORAGE_MODE_KEY, STORAGE_STYLES_KEY } from './config.js?v=2026.03.27.1';
 
 const EDITOR_STATE_KEY = 'cv-editor-state';
 const CURSOR_JS_KEY = 'cv-editor-cursor-javascript';
