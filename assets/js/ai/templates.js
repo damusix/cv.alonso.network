@@ -1,6 +1,6 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { parseMarkdown, renderMarkdown } from '../markdown.js';
+import { renderMarkdown } from '../markdown.js';
 import { formatByteSize } from '../utils.js';
 
 const PROVIDERS = [
@@ -26,7 +26,7 @@ const PROVIDERS = [
 
 export { PROVIDERS };
 
-export function settingsScreen(settings, chats) {
+export function settingsScreen(settings, chats, documents) {
     const activeProvider = settings.activeProvider || '';
 
     const providerSections = PROVIDERS.map(p => {
@@ -99,6 +99,50 @@ export function settingsScreen(settings, chats) {
                     Get a free key at <a href="https://brave.com/search/api/" target="_blank" rel="noopener">brave.com/search/api</a>
                 </small>
             </div>
+            <div class="ai-provider-card ai-profile-card">
+                <h3>
+                    User Profile
+                    <button class="ai-btn-ghost" data-action="edit-profile">
+                        <i class="fa-solid fa-pen"></i> Edit
+                    </button>
+                </h3>
+                <div class="ai-profile-preview">
+                    ${settings['user:profile']
+                        ? renderMarkdown(settings['user:profile'].length > 300
+                            ? settings['user:profile'].slice(0, 300) + '...'
+                            : settings['user:profile'])
+                        : ''}
+                </div>
+            </div>
+            <div class="ai-provider-card">
+                <h3>
+                    Context Documents
+                    <button class="ai-btn-ghost" data-action="upload-document">
+                        <i class="fa-solid fa-upload"></i> Upload
+                    </button>
+                </h3>
+                <input type="file" id="aiDocInput" multiple
+                       accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.docx" hidden />
+                <div class="ai-documents-list">
+                    ${(documents || []).length > 0
+                        ? (documents || []).map(doc => `
+                        <div class="ai-document-row" data-doc-id="${doc.id}">
+                            <div class="ai-document-info">
+                                <span class="ai-document-name">${escapeHtml(doc.name)}</span>
+                                <span class="ai-file-size">(${formatByteSize(doc.size)})</span>
+                                ${doc.summary
+                                    ? '<span class="ai-document-status ai-document-summarized"><i class="fa-solid fa-check"></i></span>'
+                                    : '<span class="ai-document-status ai-document-pending"><i class="fa-solid fa-clock"></i></span>'
+                                }
+                            </div>
+                            <button class="ai-btn-danger" data-action="delete-document" data-doc-id="${doc.id}">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>`).join('')
+                        : '<small class="ai-help-text">No documents uploaded. Upload files to give the AI context about you.</small>'
+                    }
+                </div>
+            </div>
             ${chatRows.length ? `
             <div class="ai-conversations">
                 <h3>Previous Conversations</h3>
@@ -109,6 +153,27 @@ export function settingsScreen(settings, chats) {
                     <tbody>${chatRows}</tbody>
                 </table>
             </div>` : ''}
+        </div>
+    </div>`;
+}
+
+export function profileEditDialog(currentProfile) {
+    return `
+    <div class="ai-profile-editor-overlay">
+        <div class="ai-profile-editor">
+            <div class="ai-profile-editor-header">
+                <span>Edit User Profile</span>
+                <div class="ai-profile-editor-actions">
+                    <button class="ai-btn-primary" data-action="save-profile">Save</button>
+                    <button class="ai-btn-ghost" data-action="cancel-profile">Cancel</button>
+                </div>
+            </div>
+            <textarea id="aiProfileInput" class="ai-profile-textarea"
+                      placeholder="Write information about yourself in markdown or plain text...">${escapeHtml(currentProfile || '')}</textarea>
+            <small class="ai-help-text">
+                This information is included in all AI conversations for personalized responses.
+                Supports markdown formatting.
+            </small>
         </div>
     </div>`;
 }
@@ -165,7 +230,7 @@ export function messageTemplate(msg) {
     const cls = isUser ? 'ai-msg-user' : 'ai-msg-assistant';
     const label = isUser ? 'You' : 'AI';
 
-    const render = isUser ? parseMarkdown : renderMarkdown;
+    const render = renderMarkdown;
     const contentHtml = render(msg.content || '');
 
     // Check for file attachments metadata
@@ -237,6 +302,26 @@ export function cssPreviewCard(css, summary) {
                 data-css='${escapeAttr(css)}'>
             Apply Styles
         </button>
+    </div>`;
+}
+
+export function clarificationCard(question, options) {
+    const optionBtns = options.map(opt =>
+        `<button class="ai-clarification-option" data-action="clarification-respond" data-option="${escapeAttr(opt)}">${escapeHtml(opt)}</button>`
+    ).join('');
+
+    return `
+    <div class="ai-clarification">
+        <div class="ai-clarification-question">${escapeHtml(question)}</div>
+        <div class="ai-clarification-options">
+            ${optionBtns}
+        </div>
+        <div class="ai-clarification-custom">
+            <input type="text" class="ai-clarification-input" placeholder="Or type a custom response..." />
+            <button class="ai-btn-primary ai-clarification-send" data-action="clarification-respond-custom">
+                <i class="fa-solid fa-paper-plane"></i>
+            </button>
+        </div>
     </div>`;
 }
 

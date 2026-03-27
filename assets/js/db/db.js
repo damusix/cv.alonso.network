@@ -9,7 +9,8 @@ const Dexie = (await import('https://cdn.jsdelivr.net/npm/dexie@4.0.11/+esm')).d
 
 const MessageInputSchema = z.object({
     role: z.enum(['user', 'assistant']),
-    content: z.string()
+    content: z.string(),
+    documentIds: z.array(z.number()).optional()
 });
 
 const ProviderSettingsSchema = z.object({
@@ -35,6 +36,12 @@ class CvGenDb {
             chats: '++id, title, createdAt, updatedAt',
             messages: '++id, chatId, role, content, timestamp',
             settings: 'key'
+        });
+        this.db.version(3).stores({
+            chats: '++id, title, createdAt, updatedAt',
+            messages: '++id, chatId, role, content, timestamp',
+            settings: 'key',
+            documents: '++id, name, type, size, createdAt'
         });
     }
 
@@ -75,9 +82,11 @@ class CvGenDb {
 
     async saveMessage(chatId, input) {
         assert(typeof chatId === 'number' && chatId > 0, 'Chat ID must be a positive number');
-        const { role, content } = MessageInputSchema.parse(input);
+        const { role, content, documentIds } = MessageInputSchema.parse(input);
         const timestamp = Date.now();
-        const id = await this.db.messages.add({ chatId, role, content, timestamp });
+        const record = { chatId, role, content, timestamp };
+        if (documentIds?.length) record.documentIds = documentIds;
+        const id = await this.db.messages.add(record);
         await this.db.chats.update(chatId, { updatedAt: timestamp });
         return this.db.messages.get(id);
     }
@@ -157,6 +166,42 @@ class CvGenDb {
         if (!active) return false;
         const provider = settings[`provider:${active}`];
         return !!(provider && provider.apiKey);
+    }
+
+    // ─── Document Operations ────────────────────────────────────────────
+
+    async addDocument({ name, type, size, data }) {
+        assert(typeof name === 'string' && name.length > 0, 'Document name required');
+        assert(typeof data === 'string', 'Document data must be a string');
+        const id = await this.db.documents.add({
+            name, type, size, data,
+            summary: null,
+            createdAt: Date.now()
+        });
+        return this.db.documents.get(id);
+    }
+
+    async updateDocumentSummary(id, summary, extractedText) {
+        assert(typeof id === 'number' && id > 0, 'Document ID must be a positive number');
+        const update = { summary };
+        if (extractedText !== undefined) update.extractedText = extractedText;
+        return this.db.documents.update(id, update);
+    }
+
+    async getAllDocuments() {
+        return this.db.documents.orderBy('createdAt').reverse().toArray();
+    }
+
+    async deleteDocument(id) {
+        assert(typeof id === 'number' && id > 0, 'Document ID must be a positive number');
+        return this.db.documents.delete(id);
+    }
+
+    async getDocumentSummaries() {
+        const docs = await this.db.documents.toArray();
+        return docs
+            .filter(d => d.summary)
+            .map(d => ({ id: d.id, name: d.name, summary: d.summary }));
     }
 }
 

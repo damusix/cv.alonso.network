@@ -20,10 +20,11 @@ import {
     GENERATION_AGENT_PROMPT,
     INNER_PARTIAL_UPDATE_PROMPT,
     INNER_STYLE_UPDATE_PROMPT,
+    DATE_CONTEXT,
     buildContextPrompt
 } from './prompts.js';
 import { webSearch, isSearchConfigured } from './search.js';
-import { once } from '../observable.js';
+import { once, emit } from '../observable.js';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,21 @@ const AGENT_TOOLS = [
             query: z.string().describe('The search query'),
         }),
     },
+    {
+        name: 'read_document',
+        description: 'Read the full extracted text of an uploaded document by name. Use this when a document summary in the system context is not detailed enough and you need the complete content. Available document names are listed in the [User Documents] section of your context.',
+        schema: z.object({
+            name: z.string().describe('The exact filename of the document to read (e.g. "resume.pdf", "cover-letter.docx")'),
+        }),
+    },
+    {
+        name: 'ask_clarification',
+        description: 'Ask the user a clarifying question when their instructions are ambiguous or missing important details. Present a question with suggested options. The user can select an option or type a custom response. Use this when you need more detail before proceeding.',
+        schema: z.object({
+            question: z.string().describe('The clarifying question to ask the user'),
+            options: z.array(z.string()).min(1).max(5).describe('Suggested answer options for the user to choose from'),
+        }),
+    },
 ];
 
 const GENERATION_TOOLS = [
@@ -180,6 +196,8 @@ const TOOL_STATUS_LABELS = {
     accept_partial_update: 'Accepting update',
     generate_style_update: 'Generating styles',
     accept_style_update: 'Accepting styles',
+    read_document: 'Reading document',
+    ask_clarification: 'Asking for clarification',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -309,6 +327,15 @@ export class CvAgent {
     /** @type {string|null} Conversation summary to prepend to system prompts */
     #summary = null;
 
+    /** @type {string|null} User profile markdown to include in system prompts */
+    #userProfile = null;
+
+    /** @type {Array<{id: number, name: string, summary: string}>} Document summaries for prompt injection */
+    #documentSummaries = [];
+
+    /** @type {((name: string) => Promise<string|null>)|null} Callback to read full document text by name */
+    #documentReader = null;
+
     /** @type {Map<string, object>} Proposals awaiting acceptance (deciding map) */
     #proposalMap = new Map();
 
@@ -385,6 +412,7 @@ export class CvAgent {
         this.#styleUpdateToolModel = styleUpdateToolModel || this.#generatorModel;
 
         this.#provider = provider;
+        this.#userProfile = settings['user:profile'] || null;
     }
 
     /**
@@ -425,8 +453,24 @@ export class CvAgent {
      * @returns {string}
      */
     #buildSystemPrompt(basePrompt) {
-        if (!this.#summary) return basePrompt;
-        return `[Previous conversation context]\n${this.#summary}\n\n${basePrompt}`;
+        let prompt = basePrompt;
+
+        if (this.#userProfile) {
+            prompt = `[User Profile]\nThe following is information the user has provided about themselves:\n${this.#userProfile}\n\n${prompt}`;
+        }
+
+        if (this.#documentSummaries.length > 0) {
+            const docContext = this.#documentSummaries
+                .map(d => `- ${d.name}: ${d.summary}`)
+                .join('\n');
+            prompt = `[User Documents]\nSummaries of documents the user has uploaded:\n${docContext}\n\n${prompt}`;
+        }
+
+        if (this.#summary) {
+            prompt = `[Previous conversation context]\n${this.#summary}\n\n${prompt}`;
+        }
+
+        return `${DATE_CONTEXT}\n\n${prompt}`;
     }
 
     /**
@@ -515,7 +559,7 @@ export class CvAgent {
                 const cvData = this.#editorContext?.js || '';
                 const instructions = toolCall.args.instructions;
 
-                const systemPrompt = `${INNER_PARTIAL_UPDATE_PROMPT}\n\n[Current CV Data]\n\`\`\`javascript\n${cvData}\n\`\`\``;
+                const systemPrompt = `${DATE_CONTEXT}\n\n${INNER_PARTIAL_UPDATE_PROMPT}\n\n[Current CV Data]\n\`\`\`javascript\n${cvData}\n\`\`\``;
                 const chatHistorySlice = this.#currentChatHistory || [];
                 const userPrompt = chatHistorySlice.map(m =>
                     `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
@@ -555,7 +599,7 @@ export class CvAgent {
                 const currentCss = this.#editorContext?.css || '';
                 const instructions = toolCall.args.instructions;
 
-                const systemPrompt = `${INNER_STYLE_UPDATE_PROMPT}\n\n[Current CSS]\n\`\`\`css\n${currentCss}\n\`\`\``;
+                const systemPrompt = `${DATE_CONTEXT}\n\n${INNER_STYLE_UPDATE_PROMPT}\n\n[Current CSS]\n\`\`\`css\n${currentCss}\n\`\`\``;
                 const chatHistorySlice = this.#currentChatHistory || [];
                 const userPrompt = chatHistorySlice.map(m =>
                     `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
@@ -587,6 +631,31 @@ export class CvAgent {
                 this.#pendingChanges.push(proposal);
                 this.#proposalMap.delete(toolCall.args.proposalId);
                 return `Accepted style proposal ${toolCall.args.proposalId}.`;
+            }
+
+            case 'read_document': {
+                if (!this.#documentReader) return 'No documents available.';
+                const text = await this.#documentReader(toolCall.args.name);
+                if (!text) return `Document "${toolCall.args.name}" not found or has no extracted text. Available documents: ${this.#documentSummaries.map(d => d.name).join(', ') || 'none'}`;
+                // Truncate very large documents to avoid blowing up context
+                const maxChars = 30_000;
+                return text.length > maxChars ? text.slice(0, maxChars) + '\n[Truncated]' : text;
+            }
+
+            case 'ask_clarification': {
+                if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+                return new Promise((resolve, reject) => {
+                    if (signal) {
+                        signal.addEventListener('abort', () => {
+                            reject(new DOMException('Aborted', 'AbortError'));
+                        }, { once: true });
+                    }
+                    emit('ai:clarification-request', {
+                        question: toolCall.args.question,
+                        options: toolCall.args.options,
+                        respond: (answer) => resolve(answer)
+                    });
+                });
             }
 
             default:
@@ -1034,5 +1103,77 @@ export class CvAgent {
      */
     get provider() {
         return this.#provider;
+    }
+
+    /**
+     * Sets document summaries for system prompt injection.
+     * @param {Array<{id: number, name: string, summary: string}>} summaries
+     */
+    setDocumentContext(summaries) {
+        this.#documentSummaries = summaries || [];
+    }
+
+    /**
+     * Sets a callback for reading full document text by name.
+     * @param {(name: string) => Promise<string|null>} readerFn
+     */
+    setDocumentReader(readerFn) {
+        this.#documentReader = readerFn;
+    }
+
+    /**
+     * Summarizes a text document using the router (cheap) model.
+     * @param {string} content - The extracted text content
+     * @param {string} fileName - The original file name
+     * @returns {Promise<string>} The generated summary
+     */
+    async summarizeDocument(content, fileName) {
+        this.#assertConfigured();
+
+        const systemPrompt = `You are a document summarizer. Extract the key information from this document that would be useful context for a CV/resume AI assistant. Focus on: work experience, education, skills, achievements, personal details, and career goals. Be comprehensive but concise. Output a structured summary.`;
+        const userPrompt = `Document: ${fileName}\n\n${content.slice(0, 30_000)}`;
+
+        const [result, err] = await attempt(
+            withTimeout(() => this.#routerModel.invoke([
+                ['system', systemPrompt],
+                ['human', userPrompt],
+            ]), { timeout: 60_000 })
+        );
+
+        if (err) throw new Error(`Summarization failed: ${err.message}`);
+
+        const text = typeof result.content === 'string'
+            ? result.content
+            : result.content?.[0]?.text || '';
+
+        return text.trim();
+    }
+
+    /**
+     * Summarizes an image using the router (cheap) model with vision.
+     * @param {string} base64Data - The base64 data URL of the image
+     * @param {string} fileName - The original file name
+     * @returns {Promise<string>} The generated summary
+     */
+    async summarizeImage(base64Data, fileName) {
+        this.#assertConfigured();
+
+        const [result, err] = await attempt(
+            withTimeout(() => this.#routerModel.invoke([
+                ['system', 'You are a document summarizer. Describe this image in detail, focusing on any text, data, or information that would be useful context for a CV/resume AI assistant.'],
+                ['human', [
+                    { type: 'image_url', image_url: { url: base64Data } },
+                    { type: 'text', text: `Describe this image (${fileName}) and extract any relevant information for resume context.` }
+                ]],
+            ]), { timeout: 60_000 })
+        );
+
+        if (err) throw new Error(`Image summarization failed: ${err.message}`);
+
+        const text = typeof result.content === 'string'
+            ? result.content
+            : result.content?.[0]?.text || '';
+
+        return text.trim();
     }
 }

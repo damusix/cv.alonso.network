@@ -1,8 +1,8 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
 import { db } from '../db/db.js';
-import { emit } from '../observable.js';
-import { attempt, clone, reach, setDeep, throttle, debounce } from '../utils.js';
+import { emit, on } from '../observable.js';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js';
 import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js';
 import { configureSearch } from './search.js';
 import { renderCV } from '../cv-renderer.js';
@@ -21,6 +21,8 @@ import {
     typingIndicator,
     chatListDropdown,
     generationStepSkeleton,
+    profileEditDialog,
+    clarificationCard,
     PROVIDERS
 } from './templates.js';
 
@@ -30,6 +32,7 @@ let agent = null;
 let currentChatId = null;
 let currentScreen = 'settings';
 let pendingAttachments = [];
+let pendingClarificationRespond = null;
 
 // ─── Throttled markdown-rendering token appender ─────────────────────────────
 
@@ -65,6 +68,12 @@ function flushRemainingTokens() {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
 
 function scrollMessagesToBottom() {
     const el = document.getElementById('aiMessages');
@@ -127,6 +136,36 @@ function isAbortError(err) {
         || (err.message && err.message.includes('aborted'));
 }
 
+function formatApiError(err) {
+    if (!err) return 'An unknown error occurred.';
+    const msg = err.message || String(err);
+
+    // HTTP status codes from provider APIs
+    if (msg.includes('529') || msg.includes('overloaded'))
+        return 'The API is currently overloaded. Please wait a moment and try again.';
+    if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('authentication'))
+        return 'Invalid API key. Check your key in Settings.';
+    if (msg.includes('403') || msg.includes('Forbidden'))
+        return 'Access denied. Your API key may lack the required permissions.';
+    if (msg.includes('404'))
+        return 'Model not found. Check the model name in Settings.';
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('Rate limit'))
+        return 'Rate limit exceeded. Please wait a moment and try again.';
+    if (msg.includes('500') || msg.includes('Internal Server Error'))
+        return 'The API returned a server error. Please try again.';
+    if (msg.includes('502') || msg.includes('503'))
+        return 'The API is temporarily unavailable. Please try again shortly.';
+    if (msg.includes('timeout') || msg.includes('Timeout'))
+        return 'The request timed out. Please try again.';
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError'))
+        return 'Network error — check your internet connection.';
+    if (msg.includes('not configured'))
+        return 'AI agent not configured. Set up your API key in Settings.';
+
+    // Truncate overly long LangChain error messages
+    return msg.length > 200 ? msg.slice(0, 200) + '…' : msg;
+}
+
 // ─── API Key Validation ──────────────────────────────────────────────────────
 
 const validators = {
@@ -180,7 +219,8 @@ async function showSettings(container) {
     currentScreen = 'settings';
     const [settings] = await attempt(() => db.getSettings());
     const [chats] = await attempt(() => db.getAllChats());
-    container.innerHTML = settingsScreen(settings || {}, chats || []);
+    const [documents] = await attempt(() => db.getAllDocuments());
+    container.innerHTML = settingsScreen(settings || {}, chats || [], documents || []);
 }
 
 async function showChat(container, chatId) {
@@ -279,21 +319,6 @@ async function handleSendMessage() {
     const userBubbleEl = messagesEl.lastElementChild;
     scrollMessagesToBottom();
 
-    // Save to DB — include attachment filenames so history preserves context
-    const attachmentSuffix = pendingAttachments.length > 0
-        ? '\n' + pendingAttachments.map(a => `[Attached: ${a.name}]`).join('\n')
-        : '';
-    const [savedUserMsg] = await attempt(() => db.saveMessage(currentChatId, { role: 'user', content: text + attachmentSuffix }));
-    if (savedUserMsg?.id && userBubbleEl) {
-        userBubbleEl.dataset.messageId = savedUserMsg.id;
-        userBubbleEl.insertAdjacentHTML('afterbegin',
-            `<div class="ai-msg-actions">
-                <button class="ai-msg-action-btn" data-action="retry-message" title="Retry"><i class="fa-solid fa-rotate-right"></i></button>
-                <button class="ai-msg-action-btn" data-action="edit-message" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                <button class="ai-msg-action-btn" data-action="delete-message" title="Delete">&times;</button>
-            </div>`);
-    }
-
     // Clear input and attachments
     if (textarea) {
         textarea.value = '';
@@ -303,6 +328,69 @@ async function handleSendMessage() {
     pendingAttachments = [];
     const attachmentsEl = document.getElementById('aiAttachments');
     if (attachmentsEl) attachmentsEl.innerHTML = '';
+
+    // Save attached files to documents table and collect IDs for message association
+    const attachedDocIds = [];
+    if (attachmentsForAgent.length > 0) {
+        for (const attachment of attachmentsForAgent) {
+            // Reuse existing document if same name already uploaded
+            const [existingDocs] = await attempt(() => db.getAllDocuments());
+            const existing = existingDocs?.find(d => d.name === attachment.name);
+            if (existing) {
+                attachedDocIds.push(existing.id);
+                continue;
+            }
+
+            const [doc] = await attempt(() => db.addDocument({
+                name: attachment.name,
+                type: attachment.type,
+                size: attachment.size,
+                data: attachment.base64
+            }));
+            if (!doc) continue;
+            attachedDocIds.push(doc.id);
+
+            // Summarize in background
+            if (agent?.isConfigured) (async () => {
+                let summary = null;
+                let extracted = null;
+                const blob = await fetch(attachment.base64).then(r => r.blob());
+                const file = new File([blob], attachment.name, { type: attachment.type });
+                const [extractedText] = await attempt(() => extractTextFromFile(file));
+
+                if (extractedText) {
+                    extracted = extractedText;
+                    [summary] = await attempt(() => agent.summarizeDocument(extractedText, attachment.name));
+                } else if (attachment.type.startsWith('image/')) {
+                    [summary] = await attempt(() => agent.summarizeImage(attachment.base64, attachment.name));
+                    extracted = summary;
+                }
+
+                if (summary) {
+                    await attempt(() => db.updateDocumentSummary(doc.id, summary, extracted));
+                    await refreshDocumentContext();
+                }
+            })();
+        }
+    }
+
+    // Save to DB — include attachment filenames and document associations
+    const attachmentSuffix = attachmentsForAgent.length > 0
+        ? '\n' + attachmentsForAgent.map(a => `[Attached: ${a.name}]`).join('\n')
+        : '';
+    const messageInput = { role: 'user', content: text + attachmentSuffix };
+    if (attachedDocIds.length > 0) messageInput.documentIds = attachedDocIds;
+
+    const [savedUserMsg] = await attempt(() => db.saveMessage(currentChatId, messageInput));
+    if (savedUserMsg?.id && userBubbleEl) {
+        userBubbleEl.dataset.messageId = savedUserMsg.id;
+        userBubbleEl.insertAdjacentHTML('afterbegin',
+            `<div class="ai-msg-actions">
+                <button class="ai-msg-action-btn" data-action="retry-message" title="Retry"><i class="fa-solid fa-rotate-right"></i></button>
+                <button class="ai-msg-action-btn" data-action="edit-message" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                <button class="ai-msg-action-btn" data-action="delete-message" title="Delete">&times;</button>
+            </div>`);
+    }
 
     // Show typing indicator and lock input
     messagesEl.insertAdjacentHTML('beforeend', typingIndicator());
@@ -315,8 +403,25 @@ async function handleSendMessage() {
     let classifiedIntent = null;
 
     // Build chat history from IndexedDB (source of truth)
+    // Augment messages that have linked documents with their summaries
     const [allMessages] = await attempt(() => db.getMessages(currentChatId));
-    const dbMessages = (allMessages || []).map(m => ({ role: m.role, content: m.content }));
+    const dbMessages = [];
+    for (const m of (allMessages || [])) {
+        let content = m.content;
+        if (m.documentIds?.length) {
+            const summaryParts = [];
+            for (const docId of m.documentIds) {
+                const [doc] = await attempt(() => db.db.documents.get(docId));
+                if (doc?.summary) {
+                    summaryParts.push(`[Document: ${doc.name}]\n${doc.summary}`);
+                }
+            }
+            if (summaryParts.length > 0) {
+                content += '\n\n' + summaryParts.join('\n\n');
+            }
+        }
+        dbMessages.push({ role: m.role, content });
+    }
 
     // Load existing summary
     const [existingSummary] = await attempt(() => db.getSummary(currentChatId));
@@ -342,6 +447,15 @@ async function handleSendMessage() {
         css: await getCurrentStyles() || null,
     };
 
+    // Register clarification listener before streaming
+    const cleanupClarification = on('ai:clarification-request', ({ question, options, respond }) => {
+        ensureAssistantBubble(bubbleState, messagesEl);
+        flushRemainingTokens();
+        bubbleState.contentEl.insertAdjacentHTML('beforeend', clarificationCard(question, options));
+        scrollMessagesToBottom();
+        pendingClarificationRespond = respond;
+    });
+
     const [stream, streamErr] = await attempt(() =>
         agent.processMessage(text, chatHistory, attachmentsForAgent, editorContext, summary)
     );
@@ -349,8 +463,10 @@ async function handleSendMessage() {
     if (streamErr) {
         removeTypingIndicator();
         setInputLoading(false);
+        cleanupClarification();
+        pendingClarificationRespond = null;
 
-        // if (!isAbortError(streamErr)) showErrorInChat(streamErr.message);
+        if (!isAbortError(streamErr)) showErrorInChat(formatApiError(streamErr));
 
         return;
     }
@@ -444,9 +560,7 @@ async function handleSendMessage() {
                 }
 
                 case 'error': {
-                    // if (!isAbortError({ message: chunk })) {
-                        showErrorInChat(chunk);
-                    // }
+                    showErrorInChat(formatApiError({ message: chunk }));
                     break;
                 }
 
@@ -486,9 +600,16 @@ async function handleSendMessage() {
     });
 
     removeTypingIndicator();
+    cleanupClarification();
+    pendingClarificationRespond = null;
+    // Disable any unanswered clarification cards
+    const openCards = messagesEl?.querySelectorAll('.ai-clarification:not(.ai-clarification-answered)');
+    if (openCards) {
+        for (const card of openCards) card.classList.add('ai-clarification-answered');
+    }
 
     if (iterErr && !isAbortError(iterErr)) {
-        showErrorInChat(iterErr.message);
+        showErrorInChat(formatApiError(iterErr));
     }
 
     setInputLoading(false);
@@ -584,6 +705,68 @@ function renderAttachmentPills() {
     const el = document.getElementById('aiAttachments');
     if (!el) return;
     el.innerHTML = pendingAttachments.map(f => fileAttachmentPill(f)).join('');
+}
+
+// ─── Document Text Extraction ─────────────────────────────────────────────────
+
+async function extractTextFromFile(file) {
+    const type = file.type;
+    const name = file.name.toLowerCase();
+
+    // Plain text formats
+    if (type.startsWith('text/') || name.endsWith('.md') || name.endsWith('.csv') || name.endsWith('.txt')) {
+        return file.text();
+    }
+
+    // PDF
+    if (type === 'application/pdf' || name.endsWith('.pdf')) {
+        return extractPdfText(file);
+    }
+
+    // DOCX
+    if (type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) {
+        return extractDocxText(file);
+    }
+
+    // Images — return null; will be sent as base64 to model for description
+    if (type.startsWith('image/')) {
+        return null;
+    }
+
+    throw new Error(`Unsupported file type: ${type || name}`);
+}
+
+async function extractPdfText(file) {
+    const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        pages.push(content.items.map(item => item.str).join(' '));
+    }
+    return pages.join('\n\n');
+}
+
+async function extractDocxText(file) {
+    const mammoth = await import('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/+esm');
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result.value;
+}
+
+async function refreshDocumentContext() {
+    if (!agent) return;
+    const [summaries] = await attempt(() => db.getDocumentSummaries());
+    agent.setDocumentContext(summaries || []);
+    agent.setDocumentReader(async (name) => {
+        const [docs] = await attempt(() => db.getAllDocuments());
+        const doc = docs?.find(d => d.name === name);
+        return doc?.extractedText || doc?.summary || null;
+    });
 }
 
 // ─── Apply CV ────────────────────────────────────────────────────────────────
@@ -729,6 +912,155 @@ function setupEventDelegation(container) {
                 break;
             }
 
+            case 'upload-document': {
+                const docInput = document.getElementById('aiDocInput');
+                if (!docInput) break;
+                docInput.click();
+                docInput.onchange = async () => {
+                    const files = Array.from(docInput.files || []);
+                    if (files.length === 0) return;
+
+                    for (const file of files) {
+                        const [base64] = await attempt(() => readFileAsBase64(file));
+                        if (!base64) continue;
+
+                        const [doc] = await attempt(() => db.addDocument({
+                            name: file.name, type: file.type, size: file.size, data: base64
+                        }));
+                        if (!doc) continue;
+
+                        // Add row to the list immediately
+                        const listEl = container.querySelector('.ai-documents-list');
+                        if (listEl) {
+                            // Remove placeholder text if present
+                            const placeholder = listEl.querySelector('.ai-help-text');
+                            if (placeholder) placeholder.remove();
+
+                            listEl.insertAdjacentHTML('afterbegin', `
+                                <div class="ai-document-row" data-doc-id="${doc.id}">
+                                    <div class="ai-document-info">
+                                        <span class="ai-document-name">${escapeHtml(file.name)}</span>
+                                        <span class="ai-file-size">(${formatByteSize(file.size)})</span>
+                                        <span class="ai-document-status ai-document-summarizing">
+                                            <span class="ai-gen-step-spinner"></span> Summarizing…
+                                        </span>
+                                    </div>
+                                    <button class="ai-btn-danger" data-action="delete-document" data-doc-id="${doc.id}">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                </div>`);
+                        }
+
+                        // Summarize in background (only if agent is configured)
+                        if (agent?.isConfigured) (async () => {
+                            let summary = null;
+                            let extracted = null;
+                            const [text] = await attempt(() => extractTextFromFile(file));
+
+                            if (text) {
+                                extracted = text;
+                                [summary] = await attempt(() => agent.summarizeDocument(text, file.name));
+                            } else if (file.type.startsWith('image/')) {
+                                [summary] = await attempt(() => agent.summarizeImage(base64, file.name));
+                                extracted = summary; // For images, the description IS the text
+                            }
+
+                            if (summary) {
+                                await attempt(() => db.updateDocumentSummary(doc.id, summary, extracted));
+                                await refreshDocumentContext();
+                            }
+
+                            // Update status icon
+                            const row = container.querySelector(`[data-doc-id="${doc.id}"] .ai-document-status`);
+                            if (row) {
+                                row.className = summary
+                                    ? 'ai-document-status ai-document-summarized'
+                                    : 'ai-document-status ai-document-pending';
+                                row.innerHTML = summary
+                                    ? '<i class="fa-solid fa-check"></i>'
+                                    : '<i class="fa-solid fa-clock"></i>';
+                            }
+                        })();
+                    }
+
+                    docInput.value = '';
+                };
+                break;
+            }
+
+            case 'delete-document': {
+                const docId = Number(actionEl.dataset.docId);
+                if (docId) {
+                    await attempt(() => db.deleteDocument(docId));
+                    actionEl.closest('.ai-document-row')?.remove();
+                    await refreshDocumentContext();
+                }
+                break;
+            }
+
+            case 'edit-profile': {
+                const [settings] = await attempt(() => db.getSettings());
+                const profile = settings?.['user:profile'] || '';
+                const settingsEl = container.querySelector('.ai-settings');
+                if (settingsEl) {
+                    settingsEl.insertAdjacentHTML('beforeend', profileEditDialog(profile));
+                }
+                break;
+            }
+
+            case 'save-profile': {
+                const textarea = document.getElementById('aiProfileInput');
+                const profileValue = textarea ? textarea.value : '';
+                await attempt(() => db.db.settings.put({ key: 'user:profile', value: profileValue }));
+                // Remove overlay
+                container.querySelector('.ai-profile-editor-overlay')?.remove();
+                // Update preview
+                const preview = container.querySelector('.ai-profile-preview');
+                if (preview) {
+                    const { renderMarkdown } = await import('../markdown.js');
+                    const display = profileValue.length > 300
+                        ? profileValue.slice(0, 300) + '...'
+                        : profileValue;
+                    preview.innerHTML = profileValue ? renderMarkdown(display) : '';
+                }
+                // Reconfigure agent with updated settings
+                if (agent) {
+                    const [freshSettings] = await attempt(() => db.getSettings());
+                    if (freshSettings) await attempt(() => agent.configure(freshSettings));
+                }
+                break;
+            }
+
+            case 'cancel-profile': {
+                container.querySelector('.ai-profile-editor-overlay')?.remove();
+                break;
+            }
+
+            case 'clarification-respond': {
+                const option = actionEl.dataset.option;
+                if (option && pendingClarificationRespond) {
+                    const respondFn = pendingClarificationRespond;
+                    pendingClarificationRespond = null;
+                    const card = actionEl.closest('.ai-clarification');
+                    if (card) card.classList.add('ai-clarification-answered');
+                    respondFn(`User selected: ${option}`);
+                }
+                break;
+            }
+
+            case 'clarification-respond-custom': {
+                const input = actionEl.closest('.ai-clarification-custom')?.querySelector('.ai-clarification-input');
+                const text = input?.value?.trim();
+                if (text && pendingClarificationRespond) {
+                    const respondFn = pendingClarificationRespond;
+                    pendingClarificationRespond = null;
+                    const card = actionEl.closest('.ai-clarification');
+                    if (card) card.classList.add('ai-clarification-answered');
+                    respondFn(`User responded: ${text}`);
+                }
+                break;
+            }
+
             case 'remove-file': {
                 const filename = actionEl.dataset.filename;
                 pendingAttachments = pendingAttachments.filter(f => f.name !== filename);
@@ -801,11 +1133,16 @@ function setupEventDelegation(container) {
         }
     });
 
-    // Handle keydown for textarea submit
+    // Handle keydown for textarea submit and clarification input
     container.addEventListener('keydown', async (e) => {
         if (e.target.id === 'aiInput' && e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             await handleSendMessage();
+        }
+        if (e.target.classList.contains('ai-clarification-input') && e.key === 'Enter') {
+            e.preventDefault();
+            const customBtn = e.target.closest('.ai-clarification-custom')?.querySelector('[data-action="clarification-respond-custom"]');
+            if (customBtn) customBtn.click();
         }
     });
 }
@@ -883,6 +1220,7 @@ async function handleSaveSettings(container) {
                 emit('ai:settings:error', { message: configErr.message });
             }
             configureSearch(settings);
+            await refreshDocumentContext();
         }
     }
 
@@ -908,6 +1246,7 @@ export async function initializeAI(container) {
         if (settings) {
             await attempt(() => agent.configure(settings));
             configureSearch(settings);
+            await refreshDocumentContext();
         }
         // Load the last viewed chat, falling back to most recent
         const lastChatId = settings.lastChatId || null;
