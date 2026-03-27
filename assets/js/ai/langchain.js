@@ -23,7 +23,7 @@ import {
     DATE_CONTEXT,
     buildContextPrompt
 } from './prompts.js';
-import { webSearch, isSearchConfigured } from './search.js';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js';
 import { once, emit } from '../observable.js';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
@@ -105,10 +105,52 @@ const AGENT_TOOLS = [
         }),
     },
     {
+        name: 'tavily_search',
+        description: 'Search the web using Tavily. Returns relevant results with content snippets and optionally an AI-generated answer. Use for research, fact-checking, or finding current information. Requires Tavily API key in Settings.',
+        schema: z.object({
+            query: z.string().describe('The search query'),
+            topic: z.enum(['general', 'news', 'finance']).default('general').describe('Search topic category'),
+        }),
+    },
+    {
+        name: 'tavily_extract',
+        description: 'Extract the full content of one or more web pages as markdown using Tavily. Better than web_fetch for getting clean, structured content from pages. Requires Tavily API key.',
+        schema: z.object({
+            urls: z.array(z.string()).min(1).max(10).describe('URLs to extract content from'),
+        }),
+    },
+    {
+        name: 'tavily_crawl',
+        description: 'Crawl a website starting from a URL, following links to discover and extract content from multiple pages. Useful for gathering comprehensive information from a site (e.g., a company website for resume context). Requires Tavily API key.',
+        schema: z.object({
+            url: z.string().describe('The root URL to start crawling from'),
+            instructions: z.string().optional().describe('Optional natural language guidance for what content to focus on'),
+            maxDepth: z.number().min(1).max(3).default(1).describe('How many link levels deep to crawl'),
+            limit: z.number().min(1).max(20).default(10).describe('Maximum number of pages to crawl'),
+        }),
+    },
+    {
+        name: 'tavily_map',
+        description: 'Map the URL structure of a website, returning a list of discovered page URLs. Useful for understanding a site\'s structure before deciding which pages to extract. Requires Tavily API key.',
+        schema: z.object({
+            url: z.string().describe('The root URL to start mapping from'),
+            instructions: z.string().optional().describe('Optional natural language guidance for which pages to include'),
+            maxDepth: z.number().min(1).max(3).default(1).describe('How many link levels deep to map'),
+            limit: z.number().min(1).max(50).default(30).describe('Maximum number of URLs to return'),
+        }),
+    },
+    {
         name: 'read_document',
         description: 'Read the full extracted text of an uploaded document by name. Use this when a document summary in the system context is not detailed enough and you need the complete content. Available document names are listed in the [User Documents] section of your context.',
         schema: z.object({
             name: z.string().describe('The exact filename of the document to read (e.g. "resume.pdf", "cover-letter.docx")'),
+        }),
+    },
+    {
+        name: 'save_user_fact',
+        description: 'Save an interesting or useful fact you learned about the user during conversation. Use this for information that would help personalize future CV content — such as career goals, preferences, personality traits, industries of interest, or notable achievements not already in their profile or documents. Do NOT save facts that duplicate the user profile or uploaded documents.',
+        schema: z.object({
+            fact: z.string().describe('A concise fact about the user (e.g., "Prefers a minimalist CV style", "Transitioning from finance to tech", "Has 3 patents in machine learning")'),
         }),
     },
     {
@@ -196,7 +238,12 @@ const TOOL_STATUS_LABELS = {
     accept_partial_update: 'Accepting update',
     generate_style_update: 'Generating styles',
     accept_style_update: 'Accepting styles',
+    tavily_search: 'Searching with Tavily',
+    tavily_extract: 'Extracting page content',
+    tavily_crawl: 'Crawling website',
+    tavily_map: 'Mapping website',
     read_document: 'Reading document',
+    save_user_fact: 'Remembering fact',
     ask_clarification: 'Asking for clarification',
 };
 
@@ -207,11 +254,13 @@ const MAX_TOOL_ROUNDS = 5;
 
 /**
  * Fetches a web page and extracts readable text content.
+ * Uses Puter.js for CORS-free fetching.
  * @param {string} url
  * @returns {Promise<string>}
  */
 async function fetchPageContent(url, { signal } = {}) {
-    const res = await fetch(url, { signal });
+    const fetchFn = typeof puter !== 'undefined' ? puter.net.fetch : fetch;
+    const res = await fetchFn(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const html = await res.text();
 
@@ -336,6 +385,12 @@ export class CvAgent {
     /** @type {((name: string) => Promise<string|null>)|null} Callback to read full document text by name */
     #documentReader = null;
 
+    /** @type {string[]} Facts learned about the user through conversation */
+    #learnedFacts = [];
+
+    /** @type {((fact: string) => Promise<void>)|null} Callback to persist a learned fact */
+    #factSaver = null;
+
     /** @type {Map<string, object>} Proposals awaiting acceptance (deciding map) */
     #proposalMap = new Map();
 
@@ -457,6 +512,11 @@ export class CvAgent {
 
         if (this.#userProfile) {
             prompt = `[User Profile]\nThe following is information the user has provided about themselves:\n${this.#userProfile}\n\n${prompt}`;
+        }
+
+        if (this.#learnedFacts.length > 0) {
+            const factsStr = this.#learnedFacts.map((f, i) => `${i + 1}. ${f}`).join('\n');
+            prompt = `[Learned Facts]\nFacts you have learned about this user from previous conversations:\n${factsStr}\n\n${prompt}`;
         }
 
         if (this.#documentSummaries.length > 0) {
@@ -631,6 +691,82 @@ export class CvAgent {
                 this.#pendingChanges.push(proposal);
                 this.#proposalMap.delete(toolCall.args.proposalId);
                 return `Accepted style proposal ${toolCall.args.proposalId}.`;
+            }
+
+            case 'tavily_search': {
+                if (!isTavilyConfigured()) return 'Tavily is not configured. Ask the user to add a Tavily API key in Settings.';
+                const result = await tavilySearch(toolCall.args.query, { topic: toolCall.args.topic });
+                let output = '';
+                if (result.answer) output += `Answer: ${result.answer}\n\n`;
+                output += result.results
+                    .map((r, i) => `${i + 1}. ${r.title}\n   ${r.content.slice(0, 300)}\n   ${r.url}`)
+                    .join('\n\n');
+                return output || 'No results found.';
+            }
+
+            case 'tavily_extract': {
+                if (!isTavilyConfigured()) return 'Tavily is not configured. Ask the user to add a Tavily API key in Settings.';
+                const result = await tavilyExtract(toolCall.args.urls);
+                const maxChars = 15_000;
+                let output = result.results
+                    .map(r => `URL: ${r.url}\n\n${r.content}`)
+                    .join('\n\n---\n\n');
+                if (result.failed.length > 0) {
+                    output += '\n\nFailed: ' + result.failed.map(f => `${f.url} (${f.error})`).join(', ');
+                }
+                return output.length > maxChars ? output.slice(0, maxChars) + '\n[Truncated]' : output;
+            }
+
+            case 'tavily_crawl': {
+                if (!isTavilyConfigured()) return 'Tavily is not configured. Ask the user to add a Tavily API key in Settings.';
+                const result = await tavilyCrawl(toolCall.args.url, {
+                    instructions: toolCall.args.instructions,
+                    maxDepth: toolCall.args.maxDepth,
+                    limit: toolCall.args.limit,
+                });
+                const maxChars = 15_000;
+                let output = `Crawled ${result.results.length} pages from ${result.baseUrl}\n\n`;
+                output += result.results
+                    .map(r => `URL: ${r.url}\n${r.content.slice(0, 2000)}`)
+                    .join('\n\n---\n\n');
+                return output.length > maxChars ? output.slice(0, maxChars) + '\n[Truncated]' : output;
+            }
+
+            case 'tavily_map': {
+                if (!isTavilyConfigured()) return 'Tavily is not configured. Ask the user to add a Tavily API key in Settings.';
+                const result = await tavilyMap(toolCall.args.url, {
+                    instructions: toolCall.args.instructions,
+                    maxDepth: toolCall.args.maxDepth,
+                    limit: toolCall.args.limit,
+                });
+                return `Found ${result.urls.length} URLs on ${result.baseUrl}:\n\n${result.urls.map((u, i) => `${i + 1}. ${u}`).join('\n')}`;
+            }
+
+            case 'save_user_fact': {
+                const newFact = toolCall.args.fact;
+
+                // Use router model to check if this fact is redundant
+                const existingContext = [
+                    this.#userProfile ? `User Profile:\n${this.#userProfile}` : '',
+                    this.#learnedFacts.length > 0 ? `Known Facts:\n${this.#learnedFacts.map((f, i) => `${i + 1}. ${f}`).join('\n')}` : '',
+                ].filter(Boolean).join('\n\n');
+
+                const [dedup] = await attempt(
+                    withTimeout(() => this.#routerModel.invoke([
+                        ['system', 'You decide whether a new fact about a user is worth saving. Respond with exactly "SAVE" if the fact is novel and useful, or "SKIP" if it duplicates or closely overlaps with existing information. Only respond with one word.'],
+                        ['human', `${existingContext ? `Existing context:\n${existingContext}\n\n` : ''}New fact to evaluate: "${newFact}"`],
+                    ]), { timeout: 15_000 })
+                );
+
+                const decision = (typeof dedup?.content === 'string' ? dedup.content : dedup?.content?.[0]?.text || '').trim().toUpperCase();
+
+                if (decision === 'SKIP') {
+                    return 'Fact already known — skipped.';
+                }
+
+                this.#learnedFacts.push(newFact);
+                if (this.#factSaver) await this.#factSaver(newFact);
+                return `Saved: "${newFact}"`;
             }
 
             case 'read_document': {
@@ -1119,6 +1255,16 @@ export class CvAgent {
      */
     setDocumentReader(readerFn) {
         this.#documentReader = readerFn;
+    }
+
+    /**
+     * Sets the learned facts array and a callback for persisting new facts.
+     * @param {string[]} facts
+     * @param {(fact: string) => Promise<void>} saverFn
+     */
+    setLearnedFacts(facts, saverFn) {
+        this.#learnedFacts = facts || [];
+        this.#factSaver = saverFn || null;
     }
 
     /**

@@ -160,6 +160,26 @@ class CvGenDb {
         return settings;
     }
 
+    async getLearnedFacts() {
+        const row = await this.db.settings.get('user:learned-facts');
+        return row?.value || [];
+    }
+
+    async addLearnedFact(fact) {
+        assert(typeof fact === 'string' && fact.length > 0, 'Fact must be a non-empty string');
+        const existing = await this.getLearnedFacts();
+        existing.push(fact);
+        return this.db.settings.put({ key: 'user:learned-facts', value: existing });
+    }
+
+    async removeLearnedFact(index) {
+        const existing = await this.getLearnedFacts();
+        if (index >= 0 && index < existing.length) {
+            existing.splice(index, 1);
+            return this.db.settings.put({ key: 'user:learned-facts', value: existing });
+        }
+    }
+
     async hasValidSettings() {
         const settings = await this.getSettings();
         const active = settings.activeProvider;

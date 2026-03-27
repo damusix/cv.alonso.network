@@ -98,6 +98,14 @@ export function settingsScreen(settings, chats, documents) {
                 <small class="ai-help-text">
                     Get a free key at <a href="https://brave.com/search/api/" target="_blank" rel="noopener">brave.com/search/api</a>
                 </small>
+                <label>
+                    <span>Tavily API Key</span>
+                    <input type="password" id="tavilyApiKey"
+                           value="${(settings['tavily:config']?.apiKey) || ''}" placeholder="Enter API key..." autocomplete="off" />
+                </label>
+                <small class="ai-help-text">
+                    Get a key at <a href="https://app.tavily.com" target="_blank" rel="noopener">app.tavily.com</a> — enables search, extract, crawl &amp; map tools
+                </small>
             </div>
             <div class="ai-provider-card ai-profile-card">
                 <h3>

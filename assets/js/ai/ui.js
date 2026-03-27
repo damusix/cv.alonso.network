@@ -767,6 +767,8 @@ async function refreshDocumentContext() {
         const doc = docs?.find(d => d.name === name);
         return doc?.extractedText || doc?.summary || null;
     });
+    const [facts] = await attempt(() => db.getLearnedFacts());
+    agent.setLearnedFacts(facts || [], (fact) => db.addLearnedFact(fact));
 }
 
 // ─── Apply CV ────────────────────────────────────────────────────────────────
@@ -1209,6 +1211,13 @@ async function handleSaveSettings(container) {
     await attempt(() => db.db.settings.put({
         key: 'search:config',
         value: { apiKey: searchApiKey }
+    }));
+
+    // Save Tavily config
+    const tavilyApiKey = container.querySelector('#tavilyApiKey')?.value?.trim() || '';
+    await attempt(() => db.db.settings.put({
+        key: 'tavily:config',
+        value: { apiKey: tavilyApiKey }
     }));
 
     // Configure agent and search with new settings
