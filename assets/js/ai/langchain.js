@@ -1,7 +1,7 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.03.27.1';
+import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.3';
 import {
     AiIntentSchema,
     AiPartialUpdatesSchema,
@@ -10,7 +10,7 @@ import {
     LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.03.27.1';
+} from './schemas.js?v=2026.07.24.3';
 import {
     ROUTER_SYSTEM_PROMPT,
     CHITCHAT_SYSTEM_PROMPT,
@@ -22,9 +22,9 @@ import {
     INNER_STYLE_UPDATE_PROMPT,
     DATE_CONTEXT,
     buildContextPrompt
-} from './prompts.js?v=2026.03.27.1';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.03.27.1';
-import { once, emit } from '../observable.js?v=2026.03.27.1';
+} from './prompts.js?v=2026.07.24.3';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.3';
+import { once, emit } from '../observable.js?v=2026.07.24.3';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -272,7 +272,9 @@ const TOOL_STATUS_LABELS = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const LLM_TIMEOUT = 60_000;
-const MAX_TOOL_ROUNDS = 100;
+// A confused model can otherwise burn one LLM call per round with nothing to show;
+// well-behaved tool sequences finish in a handful of rounds.
+const MAX_TOOL_ROUNDS = 12;
 
 /**
  * Fetches a web page and extracts readable text content.
@@ -448,10 +450,17 @@ export class CvAgent {
         // OpenAI reasoning models (o1, o3, etc.) only accept temperature=1
         const skipTemp = provider === 'openai';
 
+        // Fireworks enforces strict json_schema/tool schemas via constrained-generation
+        // grammar, whose builder fails on this app's deep union/optional schemas ("Failed
+        // to build a constrained-generation grammar"). disable_grammar bypasses it; the
+        // model still emits JSON/tool calls, which we validate with Zod and retry.
+        const fireworksKwargs = provider === 'fireworks' ? { disable_grammar: true } : null;
+
         this.#routerModel = new ModelClass({
             ...baseConfig,
             model: providerSettings.smallModel,
             ...(skipTemp ? {} : { temperature: 0 }),
+            ...(fireworksKwargs ? { modelKwargs: fireworksKwargs } : {}),
         });
 
         // OpenAI models (gpt-5, etc.) reject max_tokens; must use max_completion_tokens.
@@ -466,6 +475,7 @@ export class CvAgent {
             model: providerSettings.responseModel,
             ...(skipTemp ? {} : { temperature: 0.7 }),
             ...tokenLimit,
+            ...(fireworksKwargs ? { modelKwargs: fireworksKwargs } : {}),
         });
 
         // LangChain Anthropic adapter defaults topP/topK to -1 which the API rejects
@@ -857,12 +867,19 @@ export class CvAgent {
         ];
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            // Stop was requested (chat:abort). A tool's inner error is swallowed by
+            // attempt() below, so without this check an abort mid-tool would just start
+            // another round instead of ending the stream.
+            if (signal?.aborted) return;
+
             let fullText = '';
             const toolCallMap = new Map();
 
             const stream = await toolModel.stream(messages, { signal });
 
             for await (const chunk of stream) {
+                if (signal?.aborted) return;
+
                 // Stream text tokens
                 const text = typeof chunk.content === 'string'
                     ? chunk.content
@@ -918,6 +935,8 @@ export class CvAgent {
                     content: err ? `Tool error: ${err.message}` : result,
                     tool_call_id: tc.id,
                 }));
+
+                if (signal?.aborted) return;
             }
         }
     }
@@ -1224,7 +1243,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.03.27.1');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.3');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
