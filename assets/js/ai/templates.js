@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.3';
-import { formatByteSize } from '../utils.js?v=2026.07.24.3';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.4';
+import { formatByteSize } from '../utils.js?v=2026.07.24.4';
 
 const PROVIDERS = [
     {
@@ -305,6 +305,42 @@ export function applyAllButton() {
                 data-action="apply-all-cv">
             Apply All Changes
         </button>
+    </div>`;
+}
+
+/**
+ * Human-in-the-loop approval card: shows a single proposed change as before/after and
+ * asks the user to accept or reject before the agent continues.
+ * @param {{summary: string, operation: string, path: string, data: *, before: *}} change
+ */
+export function approvalCard({ summary, operation, path, data, before }) {
+    const opLabel = operation === 'delete' ? 'Remove' : operation === 'insert' ? 'Insert' : 'Update';
+    const trunc = (s) => s.length > 1400 ? s.slice(0, 1400) + '\n…' : s;
+    const fmt = (v) => v === undefined ? '(nothing here yet)' : (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+    const beforeStr = trunc(fmt(before));
+    const afterStr = operation === 'delete' ? '(removed)' : trunc(fmt(data));
+
+    return `
+    <div class="ai-approval">
+        <div class="ai-approval-header">
+            <i class="fa-solid fa-code-compare"></i>
+            <span>${escapeHtml(opLabel)} <code>${escapeHtml(path || '(whole CV)')}</code></span>
+        </div>
+        ${summary ? `<div class="ai-approval-summary">${escapeHtml(summary)}</div>` : ''}
+        <div class="ai-approval-diff">
+            <div class="ai-approval-col ai-approval-before">
+                <div class="ai-approval-col-label">Before</div>
+                <pre><code>${escapeHtml(beforeStr)}</code></pre>
+            </div>
+            <div class="ai-approval-col ai-approval-after">
+                <div class="ai-approval-col-label">After</div>
+                <pre><code>${escapeHtml(afterStr)}</code></pre>
+            </div>
+        </div>
+        <div class="ai-approval-actions">
+            <button class="ai-btn-primary" data-action="approval-accept"><i class="fa-solid fa-check"></i> Accept</button>
+            <button class="ai-btn-danger" data-action="approval-reject"><i class="fa-solid fa-xmark"></i> Reject</button>
+        </div>
     </div>`;
 }
 

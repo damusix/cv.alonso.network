@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.24.3';
-import { emit, on } from '../observable.js?v=2026.07.24.3';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.3';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.3';
-import { configureSearch } from './search.js?v=2026.07.24.3';
-import { renderCV } from '../cv-renderer.js?v=2026.07.24.3';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.3';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.3';
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.3';
+import { db } from '../db/db.js?v=2026.07.24.4';
+import { emit, on } from '../observable.js?v=2026.07.24.4';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.4';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.4';
+import { configureSearch } from './search.js?v=2026.07.24.4';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.4';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.4';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.4';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.4';
 import {
     settingsScreen,
     chatScreen,
@@ -23,8 +23,9 @@ import {
     generationStepSkeleton,
     profileEditDialog,
     clarificationCard,
+    approvalCard,
     PROVIDERS
-} from './templates.js?v=2026.07.24.3';
+} from './templates.js?v=2026.07.24.4';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -33,6 +34,8 @@ let currentChatId = null;
 let currentScreen = 'settings';
 let pendingAttachments = [];
 let pendingClarificationRespond = null;
+// { respond, operation, path, data } while a per-change approval dialog is open, else null
+let pendingApprovalRespond = null;
 
 // ─── Throttled markdown-rendering token appender ─────────────────────────────
 
@@ -52,9 +55,10 @@ let lastRenderedLen = -1;
 
 export const getCurrentAiScreen = () => currentScreen;
 
-// Paint streamed content into `el`, preserving injected step/preview cards.
+// Paint streamed content into `el`, preserving injected step/preview/approval cards
+// (a re-render mid-stream must not wipe the user's before/after approval history).
 function paintStreamedContent(el, text, allowMarkdown) {
-    const preserved = [...el.querySelectorAll('.ai-gen-step, .ai-cv-preview')];
+    const preserved = [...el.querySelectorAll('.ai-gen-step, .ai-cv-preview, .ai-approval')];
     el.innerHTML = allowMarkdown
         ? renderMarkdown(text)
         : `<pre class="ai-stream-raw" style="white-space:pre-wrap;overflow-x:auto;margin:0">${escapeHtml(text)}</pre>`;
@@ -480,6 +484,18 @@ async function handleSendMessage() {
         pendingClarificationRespond = respond;
     });
 
+    // Register per-change approval listener (human-in-the-loop). The agent blocks on
+    // this until the user accepts/rejects each proposed change.
+    const cleanupApproval = on('ai:approval-request', ({ summary, operation, path, data, respond }) => {
+        ensureAssistantBubble(bubbleState, messagesEl);
+        flushRemainingTokens();
+        // An insert adds a new entry at that index, so there is no meaningful "before".
+        const before = operation === 'insert' ? undefined : currentValueAtPath(path);
+        bubbleState.contentEl.insertAdjacentHTML('beforeend', approvalCard({ summary, operation, path, data, before }));
+        scrollMessagesToBottom();
+        pendingApprovalRespond = { respond, operation, path, data };
+    });
+
     const [stream, streamErr] = await attempt(() =>
         agent.processMessage(text, chatHistory, attachmentsForAgent, editorContext, summary)
     );
@@ -488,7 +504,9 @@ async function handleSendMessage() {
         removeTypingIndicator();
         setInputLoading(false);
         cleanupClarification();
+        cleanupApproval();
         pendingClarificationRespond = null;
+        pendingApprovalRespond = null;
 
         if (!isAbortError(streamErr)) showErrorInChat(formatApiError(streamErr));
 
@@ -633,11 +651,13 @@ async function handleSendMessage() {
     removeTypingIndicator();
     removeBubbleStatus(bubbleState.assistantBubble);
     cleanupClarification();
+    cleanupApproval();
     pendingClarificationRespond = null;
-    // Disable any unanswered clarification cards
-    const openCards = messagesEl?.querySelectorAll('.ai-clarification:not(.ai-clarification-answered)');
+    pendingApprovalRespond = null;
+    // Disable any unanswered clarification / approval cards
+    const openCards = messagesEl?.querySelectorAll('.ai-clarification:not(.ai-clarification-answered), .ai-approval:not(.ai-approval-answered)');
     if (openCards) {
-        for (const card of openCards) card.classList.add('ai-clarification-answered');
+        for (const card of openCards) card.classList.add('ai-clarification-answered', 'ai-approval-answered');
     }
 
     if (iterErr && !isAbortError(iterErr)) {
@@ -865,6 +885,15 @@ export function applyCvFromAI(cvData, path, operation = 'set') {
     emit('ai:cv-applied', { data: { cvData: finalData } });
 }
 
+// Current value at a dot-path in the saved CV — the "before" side of an approval diff.
+// reach() returns undefined for missing paths, which the card renders as "nothing here yet".
+function currentValueAtPath(path) {
+    if (!path) return undefined;
+    const saved = loadSavedData();
+    if (!saved.result) return undefined;
+    return reach(saved.result, path);
+}
+
 // ─── Event Delegation ────────────────────────────────────────────────────────
 
 function setupEventDelegation(container) {
@@ -1076,7 +1105,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.3');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.4');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1137,6 +1166,34 @@ function setupEventDelegation(container) {
                         await handleSendMessage();
                     }
                 }
+                break;
+            }
+
+            case 'approval-accept': {
+                const card = actionEl.closest('.ai-approval');
+                if (card) {
+                    card.classList.add('ai-approval-answered', 'ai-approval-accepted');
+                    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+                }
+                const p = pendingApprovalRespond;
+                pendingApprovalRespond = null;
+                if (p) {
+                    // Apply the change live, then unblock the agent so it continues.
+                    applyCvFromAI(p.data, p.path, p.operation);
+                    p.respond(true);
+                }
+                break;
+            }
+
+            case 'approval-reject': {
+                const card = actionEl.closest('.ai-approval');
+                if (card) {
+                    card.classList.add('ai-approval-answered', 'ai-approval-rejected');
+                    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+                }
+                const p = pendingApprovalRespond;
+                pendingApprovalRespond = null;
+                if (p) p.respond(false);
                 break;
             }
 
@@ -1319,7 +1376,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.24.3');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.4');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();

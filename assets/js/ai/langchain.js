@@ -1,7 +1,7 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.3';
+import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.4';
 import {
     AiIntentSchema,
     AiPartialUpdatesSchema,
@@ -10,7 +10,7 @@ import {
     LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.3';
+} from './schemas.js?v=2026.07.24.4';
 import {
     ROUTER_SYSTEM_PROMPT,
     CHITCHAT_SYSTEM_PROMPT,
@@ -22,9 +22,9 @@ import {
     INNER_STYLE_UPDATE_PROMPT,
     DATE_CONTEXT,
     buildContextPrompt
-} from './prompts.js?v=2026.07.24.3';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.3';
-import { once, emit } from '../observable.js?v=2026.07.24.3';
+} from './prompts.js?v=2026.07.24.4';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.4';
+import { once, emit } from '../observable.js?v=2026.07.24.4';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -421,6 +421,9 @@ export class CvAgent {
     /** @type {Array<object>} Accepted proposals (final output) */
     #pendingChanges = [];
 
+    /** @type {boolean} Whether the user was shown at least one partial-update change to approve this run */
+    #partialUpdateReviewed = false;
+
     /** @type {Array<{role: string, content: string}>} Chat history for inner tool calls */
     #currentChatHistory = [];
 
@@ -693,9 +696,26 @@ export class CvAgent {
             case 'accept_partial_update': {
                 const proposal = this.#proposalMap.get(toolCall.args.proposalId);
                 if (!proposal) return `Proposal ${toolCall.args.proposalId} not found. Available: ${[...this.#proposalMap.keys()].join(', ') || 'none'}`;
-                this.#pendingChanges.push(proposal);
                 this.#proposalMap.delete(toolCall.args.proposalId);
-                return `Accepted proposal ${toolCall.args.proposalId}.`;
+
+                // Human-in-the-loop: each change is shown to the user (before/after) for
+                // approval BEFORE it is applied. Approved changes are applied live by the
+                // UI; rejected ones are dropped. This blocks the agent until the user acts.
+                const outcomes = [];
+                for (const update of proposal.updates) {
+                    this.#partialUpdateReviewed = true;
+                    const [approved, err] = await attempt(() => this.#requestApproval({
+                        summary: proposal.explanation,
+                        operation: update.operation,
+                        path: update.path,
+                        data: update.data,
+                    }, signal));
+                    if (err) throw err; // aborted — propagate so the stream stops
+                    outcomes.push(approved
+                        ? `APPLIED ${update.operation} at ${update.path}`
+                        : `user REJECTED ${update.operation} at ${update.path} — do not retry this identical change`);
+                }
+                return `User review complete: ${outcomes.join('; ')}. Approved changes are already applied to the CV — do not re-apply them.`;
             }
 
             case 'generate_style_update': {
@@ -841,6 +861,33 @@ export class CvAgent {
             default:
                 return `Unknown tool: ${toolCall.name}`;
         }
+    }
+
+    /**
+     * Human-in-the-loop approval gate. Emits an approval request describing a single
+     * CV change and resolves with the user's decision (true=accept, false=reject).
+     * Rejects with AbortError if the run is stopped while waiting. Mirrors the
+     * ask_clarification bridge: the UI applies the change on accept and calls respond().
+     *
+     * @param {{summary: string, operation: string, path: string, data: *}} change
+     * @param {AbortSignal} [signal]
+     * @returns {Promise<boolean>}
+     */
+    #requestApproval(change, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal) {
+                signal.addEventListener('abort', () => {
+                    reject(new DOMException('Aborted', 'AbortError'));
+                }, { once: true });
+            }
+            emit('ai:approval-request', {
+                summary: change.summary,
+                operation: change.operation,
+                path: change.path,
+                data: change.data,
+                respond: (approved) => resolve(!!approved),
+            });
+        });
     }
 
     /**
@@ -1121,6 +1168,7 @@ export class CvAgent {
     async *#handlePartialUpdate({ userMessage, chatHistory, attachments, intent, signal }) {
         this.#proposalMap.clear();
         this.#pendingChanges = [];
+        this.#partialUpdateReviewed = false;
 
         const contextHint = intent.targetSection
             ? `\nThe user wants to update the "${intent.targetSection}" section.${intent.targetIndex >= 0 ? ` Specifically item at index ${intent.targetIndex}.` : ''}`
@@ -1147,18 +1195,12 @@ export class CvAgent {
             yield event;
         }
 
-        // Yield accepted proposals
-        if (this.#pendingChanges.length === 0) {
+        // Approved changes were applied live during the per-change approval step, so
+        // there is nothing to emit here. Only surface an error if the model never got a
+        // valid change in front of the user (a rejected change is a deliberate choice,
+        // not a failure).
+        if (!this.#partialUpdateReviewed) {
             yield { type: 'error', chunk: 'The AI was unable to make the requested changes. Try rephrasing your request or being more specific about what you want to change.' };
-            return;
-        }
-
-        for (const proposal of this.#pendingChanges) {
-            if (proposal.type === 'partial') {
-                for (const updateData of proposal.updates) {
-                    yield { type: 'cv_section', chunk: updateData };
-                }
-            }
         }
     }
 
@@ -1243,7 +1285,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.3');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.4');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`

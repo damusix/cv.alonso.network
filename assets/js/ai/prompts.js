@@ -137,6 +137,7 @@ Make ONE focused change per proposal. If the user asks for several things (e.g. 
 
 - Always call at least one generate tool — do not produce CV data in your text response
 - Always call accept on a proposal before finishing — unaccepted proposals are discarded
+- accept_partial_update submits the change to the USER for approval: they see a before/after and accept or reject it. Approved changes are applied immediately — do not try to re-apply them. If the user REJECTS a change, do not retry the identical change; briefly ask what they'd prefer, or move on to the next change.
 - You can also use read_resume, web_fetch, and web_search tools alongside the update tools` + CV_WRITING_GUIDE;
 
 export const STYLE_UPDATE_SYSTEM_PROMPT = `You are a CSS expert for a CV/resume generator application.
