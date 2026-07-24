@@ -894,74 +894,84 @@
     color: var(--ed-text-muted);
 }
 
+/* The diff area is a single scrollable frame. Two presentations mount inside it:
+ * `.ai-diff-unified` (git-style line diff) and `.ai-diff-prose` (inline word diff). */
 .ai-approval-diff {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
     flex: 1;
     min-height: 0;
-}
-
-@media (max-width: 720px) {
-    .ai-approval-diff { grid-template-columns: 1fr; }
-}
-
-.ai-approval-col {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
-
-.ai-approval-col-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ed-text-muted);
-    margin-bottom: 4px;
-}
-
-.ai-approval-col pre {
-    margin: 0;
-    flex: 1;
     overflow: auto;
-    padding: 12px;
     border-radius: 6px;
-    font-size: 13px;
-    line-height: 1.55;
+    border: 1px solid #3a3a3a;
+    background: #1e1e1e;
+}
+
+/* Unified line diff — the familiar git / GitHub look: a gutter marker per line, removed
+ * lines red, added lines green, context grey. Rows are <div>/<span>, never <code>, so the
+ * global light `code` background in base.css can't bleed in and wash the text out. */
+.ai-diff-unified {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    font-variant-ligatures: none;
+    padding: 6px 0;
+}
+
+.ai-diff-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 0 12px;
     white-space: pre-wrap;
     word-break: break-word;
-    color: #e6e6e6;
 }
 
-/* base.css sets a global `code { background: #f3f4f6 }` (light). Inside the diff that
- * put near-white text on a light chip — illegible. Neutralize it so the diff renders
- * as light text on the dark panels below. */
-.ai-approval-col pre,
-.ai-approval-col pre code {
-    background: none;
-    color: #e6e6e6;
-    padding-block: 0;
+.ai-diff-gutter {
+    flex: 0 0 auto;
+    width: 0.8em;
+    text-align: center;
+    color: #6e7681;
+    user-select: none;
 }
-.ai-approval-col pre code { padding: 0; }
 
-.ai-approval-before pre { background: #2b1f1f; border: 1px solid #f8514933; }
-.ai-approval-after pre  { background: #1c2a1e; border: 1px solid #3fb95033; }
+.ai-diff-text { flex: 1; min-width: 0; }
 
-/* Word-level diff highlighting — solid enough to read the changed words at a glance */
-.ai-approval-before del {
-    background: rgba(248, 81, 73, 0.32);
+.ai-diff-context .ai-diff-text { color: #cfcfcf; }
+
+.ai-diff-del { background: rgba(248, 81, 73, 0.15); }
+.ai-diff-del .ai-diff-gutter,
+.ai-diff-del .ai-diff-text { color: #ffb3af; }
+
+.ai-diff-ins { background: rgba(63, 185, 80, 0.15); }
+.ai-diff-ins .ai-diff-gutter,
+.ai-diff-ins .ai-diff-text { color: #97e6a2; }
+
+/* Prose diff for a plain-string edit — inline removed/added words in reading order. */
+.ai-diff-prose {
+    padding: 14px 16px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: #d0d0d0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Small horizontal padding keeps a removed word and its replacement visually distinct
+ * when they land adjacent (otherwise "with"+"and" reads as one joined token). */
+.ai-diff-prose del {
+    background: rgba(248, 81, 73, 0.28);
     color: #ffd7d5;
     text-decoration: line-through;
     text-decoration-color: #f85149;
     border-radius: 2px;
+    padding: 1px 3px;
 }
-.ai-approval-after ins {
-    background: rgba(63, 185, 80, 0.34);
+.ai-diff-prose ins {
+    background: rgba(63, 185, 80, 0.30);
     color: #d6ffd9;
     text-decoration: none;
     border-radius: 2px;
+    padding: 1px 3px;
 }
-.ai-approval-removed { color: #f85149; font-style: italic; }
 
 .ai-approval-actions {
     display: flex;

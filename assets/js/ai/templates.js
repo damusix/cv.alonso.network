@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.6';
-import { formatByteSize } from '../utils.js?v=2026.07.24.6';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.7';
+import { formatByteSize } from '../utils.js?v=2026.07.24.7';
 
 const PROVIDERS = [
     {
@@ -311,16 +311,26 @@ export function applyAllButton() {
 const OP_LABEL = { delete: 'Remove', insert: 'Insert' };
 const opLabelFor = (operation) => OP_LABEL[operation] || 'Update';
 
-// Word-level diff of two strings. Returns { beforeHtml, afterHtml } with removed words
-// wrapped in <del> and added words in <ins>. Whitespace is kept as its own tokens so the
-// text reflows naturally. Falls back to plain escaped text if the inputs are large enough
-// that the O(n*m) LCS table would be wasteful.
-function wordDiff(beforeStr, afterStr) {
-    const tok = (s) => s.match(/\s+|\S+/g) || [];
-    const a = tok(beforeStr), b = tok(afterStr);
-    if (a.length * b.length > 250_000) {
-        return { beforeHtml: escapeHtml(beforeStr), afterHtml: escapeHtml(afterStr) };
+// Renders any CV value into readable, line-oriented text for diffing. Plain strings pass
+// through; objects/arrays become indented `key: value` / `- item` lines rather than raw
+// JSON, so the diff reads like a document instead of a code blob.
+function toDiffText(value, depth = 0) {
+    const pad = '  '.repeat(depth);
+    if (value === undefined || value === null) return '';
+    if (typeof value !== 'object') return `${pad}${value}`;
+    if (Array.isArray(value)) {
+        return value.map((item) => (item && typeof item === 'object')
+            ? `${pad}-\n${toDiffText(item, depth + 1)}`
+            : `${pad}- ${item ?? ''}`).join('\n');
     }
+    return Object.entries(value).map(([k, v]) => (v && typeof v === 'object')
+        ? `${pad}${k}:\n${toDiffText(v, depth + 1)}`
+        : `${pad}${k}: ${v ?? ''}`).join('\n');
+}
+
+// Standard LCS DP table over two token arrays, shared by the word- and line-level diffs.
+// dp[i][j] = length of the longest common subsequence of a[i:] and b[j:].
+function lcsTable(a, b) {
     const m = a.length, n = b.length;
     const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
     for (let i = m - 1; i >= 0; i--) {
@@ -328,25 +338,71 @@ function wordDiff(beforeStr, afterStr) {
             dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
         }
     }
-    const beforeParts = [], afterParts = [];
-    let i = 0, j = 0;
-    while (i < m && j < n) {
-        if (a[i] === b[j]) { beforeParts.push(escapeHtml(a[i])); afterParts.push(escapeHtml(b[j])); i++; j++; }
-        else if (dp[i + 1][j] >= dp[i][j + 1]) { beforeParts.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
-        else { afterParts.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
-    }
-    while (i < m) { beforeParts.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
-    while (j < n) { afterParts.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
-    return { beforeHtml: beforeParts.join(''), afterHtml: afterParts.join('') };
+    return dp;
 }
 
-function diffSides(operation, before, data) {
-    const fmt = (v) => v === undefined ? '(nothing here yet)' : (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
-    if (operation === 'delete') {
-        return { beforeHtml: escapeHtml(fmt(before)), afterHtml: '<span class="ai-approval-removed">(removed)</span>' };
+// Inline word-level diff of two strings (GitHub prose style): one HTML stream with removed
+// words in <del> and added words in <ins>, in reading order. Whitespace is its own token so
+// text reflows naturally. Falls back to whole-string del/ins when the LCS table is wasteful.
+function wordDiffInline(beforeStr, afterStr) {
+    const tok = (s) => s.match(/\s+|\S+/g) || [];
+    const a = tok(beforeStr), b = tok(afterStr);
+    if (a.length * b.length > 250_000) {
+        return `<del>${escapeHtml(beforeStr)}</del><ins>${escapeHtml(afterStr)}</ins>`;
     }
-    if (typeof before === 'string' && typeof data === 'string') return wordDiff(before, data);
-    return { beforeHtml: escapeHtml(fmt(before)), afterHtml: escapeHtml(fmt(data)) };
+    const dp = lcsTable(a, b);
+    const out = [];
+    let i = 0, j = 0;
+    while (i < a.length && j < b.length) {
+        if (a[i] === b[j]) { out.push(escapeHtml(a[i])); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
+        else { out.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
+    }
+    while (i < a.length) { out.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
+    while (j < b.length) { out.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
+    return out.join('');
+}
+
+// Line-level diff rendered as a unified diff — the familiar git / GitHub look: one column,
+// a gutter marker per line (space/-/+), removed lines red, added lines green, context grey.
+const DIFF_GUTTER = { context: ' ', del: '-', ins: '+' };
+function unifiedDiff(beforeText, afterText) {
+    const a = beforeText ? beforeText.split('\n') : [];
+    const b = afterText ? afterText.split('\n') : [];
+    let rows;
+    if (a.length * b.length > 400_000) {
+        rows = [...a.map((t) => ({ type: 'del', text: t })), ...b.map((t) => ({ type: 'ins', text: t }))];
+    } else {
+        const dp = lcsTable(a, b);
+        rows = [];
+        let i = 0, j = 0;
+        while (i < a.length && j < b.length) {
+            if (a[i] === b[j]) { rows.push({ type: 'context', text: a[i] }); i++; j++; }
+            else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ type: 'del', text: a[i] }); i++; }
+            else { rows.push({ type: 'ins', text: b[j] }); j++; }
+        }
+        while (i < a.length) { rows.push({ type: 'del', text: a[i] }); i++; }
+        while (j < b.length) { rows.push({ type: 'ins', text: b[j] }); j++; }
+    }
+    return rows.map((r) =>
+        `<div class="ai-diff-row ai-diff-${r.type}"><span class="ai-diff-gutter">${DIFF_GUTTER[r.type]}</span><span class="ai-diff-text">${escapeHtml(r.text) || ' '}</span></div>`
+    ).join('');
+}
+
+// Picks the diff presentation for a change: an inline word diff for a plain-string edit
+// (reads like prose), a unified line diff for structured values, and an all-removed /
+// all-added block for delete / insert.
+function renderDiffBody(operation, before, data) {
+    if (operation === 'delete') {
+        return `<div class="ai-diff-unified">${unifiedDiff(toDiffText(before), '')}</div>`;
+    }
+    if (operation === 'insert' || before === undefined) {
+        return `<div class="ai-diff-unified">${unifiedDiff('', toDiffText(data))}</div>`;
+    }
+    if (typeof before === 'string' && typeof data === 'string') {
+        return `<div class="ai-diff-prose">${wordDiffInline(before, data)}</div>`;
+    }
+    return `<div class="ai-diff-unified">${unifiedDiff(toDiffText(before), toDiffText(data))}</div>`;
 }
 
 /**
@@ -357,7 +413,7 @@ function diffSides(operation, before, data) {
  */
 export function approvalDialog({ summary, operation, path, data, before }) {
     const opLabel = opLabelFor(operation);
-    const { beforeHtml, afterHtml } = diffSides(operation, before, data);
+    const diffBody = renderDiffBody(operation, before, data);
 
     return `
     <div class="ai-approval-overlay">
@@ -370,16 +426,7 @@ export function approvalDialog({ summary, operation, path, data, before }) {
                 <span class="ai-approval-hint">Review before applying</span>
             </div>
             ${summary ? `<div class="ai-approval-summary">${escapeHtml(summary)}</div>` : ''}
-            <div class="ai-approval-diff">
-                <div class="ai-approval-col ai-approval-before">
-                    <div class="ai-approval-col-label">Before</div>
-                    <pre><code>${beforeHtml}</code></pre>
-                </div>
-                <div class="ai-approval-col ai-approval-after">
-                    <div class="ai-approval-col-label">After</div>
-                    <pre><code>${afterHtml}</code></pre>
-                </div>
-            </div>
+            <div class="ai-approval-diff">${diffBody}</div>
             <div class="ai-approval-actions">
                 <button class="ai-btn-ghost ai-approval-reject"><i class="fa-solid fa-xmark"></i> Reject</button>
                 <button class="ai-btn-primary ai-approval-accept"><i class="fa-solid fa-check"></i> Accept &amp; apply</button>
