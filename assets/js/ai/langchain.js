@@ -1,7 +1,7 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.4';
+import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.5';
 import {
     AiIntentSchema,
     AiPartialUpdatesSchema,
@@ -10,7 +10,7 @@ import {
     LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.4';
+} from './schemas.js?v=2026.07.24.5';
 import {
     ROUTER_SYSTEM_PROMPT,
     CHITCHAT_SYSTEM_PROMPT,
@@ -22,9 +22,9 @@ import {
     INNER_STYLE_UPDATE_PROMPT,
     DATE_CONTEXT,
     buildContextPrompt
-} from './prompts.js?v=2026.07.24.4';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.4';
-import { once, emit } from '../observable.js?v=2026.07.24.4';
+} from './prompts.js?v=2026.07.24.5';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.5';
+import { once, emit } from '../observable.js?v=2026.07.24.5';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -275,6 +275,10 @@ const LLM_TIMEOUT = 60_000;
 // A confused model can otherwise burn one LLM call per round with nothing to show;
 // well-behaved tool sequences finish in a handful of rounds.
 const MAX_TOOL_ROUNDS = 12;
+// Rounds alone don't bound cost: a model can emit many tool calls in a SINGLE round
+// (observed: a weak model spamming generate_* without ever converging). This is the hard
+// ceiling on total tool executions per user turn — the real runaway backstop.
+const MAX_TOOL_CALLS = 24;
 
 /**
  * Fetches a web page and extracts readable text content.
@@ -913,6 +917,8 @@ export class CvAgent {
             ['human', userContent],
         ];
 
+        let toolCallsMade = 0;
+
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
             // Stop was requested (chat:abort). A tool's inner error is swallowed by
             // attempt() below, so without this check an abort mid-tool would just start
@@ -971,6 +977,14 @@ export class CvAgent {
 
             // Execute each tool and add results
             for (const tc of parsedCalls) {
+                // Hard runaway backstop: a model can spam tool calls (esp. retrying
+                // generate_* without converging). Stop and tell the user rather than
+                // silently making dozens of API calls with nothing on screen.
+                if (++toolCallsMade > MAX_TOOL_CALLS) {
+                    yield { type: 'error', chunk: `Stopped after ${MAX_TOOL_CALLS} tool calls without finishing — the model kept trying without converging. This can happen with smaller models on complex edits; try a more capable model or a simpler request.` };
+                    return;
+                }
+
                 yield { type: 'tool_status', chunk: TOOL_STATUS_LABELS[tc.name] || tc.name };
                 yield { type: 'tool_start', chunk: { name: tc.name, args: tc.args } };
 
@@ -1285,7 +1299,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.4');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.5');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
