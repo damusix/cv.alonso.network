@@ -248,7 +248,7 @@ async function capturePrint(page, name, { paper = 'Letter' } = {}) {
     await page.evaluate(() => document.fonts.ready);
 
     await page.emulateMedia({ media: 'print' });
-    // No `margin` here on purpose — print.css sets `@page { margin: 0.75in }` and
+    // No `margin` here on purpose — print.css sets `@page { margin: 0.4in }` and
     // passing margins would silently override it, so the capture would not match ⌘P.
     await page.pdf({ path: pdf, format: paper, printBackground: true, preferCSSPageSize: true });
     await page.emulateMedia({ media: null });
@@ -763,6 +763,81 @@ async function approvalStates() {
     }
 }
 
+// ---------------------------------------------------------------- doc screenshots
+
+/**
+ * Regenerate the images the public docs use. The hero (repo-root screenshot.png,
+ * referenced by README.md) is captured from a clean default render — no personal
+ * data, no API keys — so it stays accurate and reproducible. A few extra candidate
+ * shots land in tmp/run-shots/docs/ for the styles, AI-settings, and approval
+ * surfaces; adopt any into the docs by copying the file in.
+ */
+async function docShots() {
+    const DOCS = path.join(SHOTS, 'docs');
+    fs.mkdirSync(DOCS, { recursive: true });
+    const hero = path.join(REPO, 'screenshot.png');
+    const written = [];
+    const capture = async (p) => { await clearToasts(page); await page.evaluate(() => document.fonts.ready); await page.screenshot({ path: p }); written.push(p); return p; };
+
+    const { origin, proc } = await startServer();
+    const browser = await chromium.launch({ headless: !HEADED });
+    const page = await newPage(browser, origin);
+
+    // A tasteful accent restyle to show the Styles tab doing something. Explicit
+    // colors (not tokens) so the shot is identical regardless of base.css naming.
+    const ACCENT = '#2563eb';
+    const ACCENT_CSS =
+        `.cv-container header { border-bottom: 3px solid ${ACCENT}; }\n` +
+        `main section h2 { color: ${ACCENT}; }\n` +
+        `main section .item .tags .tag { background: ${ACCENT}; color: #fff; border-color: ${ACCENT}; }`;
+
+    try {
+        // --- hero: default CV in the preview + JS editor on base styles. The core
+        //     loop (write JS -> get a CV) and what a first-time visitor sees.
+        await open(page);
+        await capture(hero);
+        fs.copyFileSync(hero, path.join(DOCS, '01-hero.png'));
+
+        // --- styles surface: the accent restyle applied through the Styles tab.
+        await page.evaluate(() => window.setEditorMode('css'));
+        await page.waitForFunction(() => window.monaco.editor.getEditors()[0].getModel().getLanguageId() === 'css');
+        await setEditorValue(page, ACCENT_CSS);
+        await apply(page);
+        await capture(path.join(DOCS, '02-styles.png'));
+        await useBaseStyles(page); // drop custom CSS so later shots render on defaults
+
+        // --- AI settings surface: a fresh profile with no keys lands on the
+        //     provider/settings screen — no personal data to leak.
+        await page.evaluate(() => window.setEditorMode('ai'));
+        await page.waitForSelector('#aiContainer .ai-settings', { timeout: 30_000 });
+        await capture(path.join(DOCS, '03-ai-settings.png'));
+        await page.evaluate(() => window.setEditorMode('javascript'));
+
+        // --- approval surface: the human-in-the-loop diff dialog, rendered from the
+        //     real templates (no live LLM needed) so the diff/contrast is production CSS.
+        await page.evaluate(async () => {
+            const { VERSION } = await import('/assets/js/version.js');
+            const t = await import(`/assets/js/ai/templates.js?v=${VERSION}`);
+            document.querySelectorAll('.ai-approval-overlay').forEach((e) => e.remove());
+            document.body.insertAdjacentHTML('beforeend', t.approvalDialog({
+                summary: 'Sharpen the summary and quantify scope.',
+                operation: 'set', path: 'summary',
+                before: 'Senior software engineer with 14 years of experience building web applications for healthcare and finance companies.',
+                data: 'Senior software engineer and technical lead with 14+ years building scalable web applications for healthcare and fintech companies.',
+            }));
+        });
+        await page.waitForTimeout(250); // let the fade-in settle
+        await capture(path.join(DOCS, '04-ai-approval.png'));
+
+        console.log(`hero -> ${hero}`);
+        console.log(`candidates -> ${DOCS}/`);
+        for (const w of written) console.log(`  ${w}`);
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
+
 // ----------------------------------------------------------------
 
 const URL_OVERRIDE = opt('url', null);
@@ -779,4 +854,5 @@ else if (cmd === 'shot') await oneShot();
 else if (cmd === 'print') await oneShotPrint();
 else if (cmd === 'sizes') await typeSizes();
 else if (cmd === 'approval-states') await approvalStates();
-else { console.error(`unknown command '${cmd}' — expected smoke | repl | shot | print | sizes | approval-states`); process.exit(2); }
+else if (cmd === 'screenshots' || cmd === 'docshots') await docShots();
+else { console.error(`unknown command '${cmd}' — expected smoke | repl | shot | print | sizes | approval-states | screenshots`); process.exit(2); }
