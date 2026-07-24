@@ -930,20 +930,34 @@
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-word;
+    color: #e6e6e6;
 }
 
-.ai-approval-before pre { background: #f851490d; border: 1px solid #f8514926; }
-.ai-approval-after pre  { background: #3fb9500d; border: 1px solid #3fb95026; }
+/* base.css sets a global `code { background: #f3f4f6 }` (light). Inside the diff that
+ * put near-white text on a light chip — illegible. Neutralize it so the diff renders
+ * as light text on the dark panels below. */
+.ai-approval-col pre,
+.ai-approval-col pre code {
+    background: none;
+    color: #e6e6e6;
+    padding-block: 0;
+}
+.ai-approval-col pre code { padding: 0; }
 
-/* Word-level diff highlighting */
+.ai-approval-before pre { background: #2b1f1f; border: 1px solid #f8514933; }
+.ai-approval-after pre  { background: #1c2a1e; border: 1px solid #3fb95033; }
+
+/* Word-level diff highlighting — solid enough to read the changed words at a glance */
 .ai-approval-before del {
-    background: #f8514933;
+    background: rgba(248, 81, 73, 0.32);
+    color: #ffd7d5;
     text-decoration: line-through;
-    text-decoration-color: #f85149aa;
+    text-decoration-color: #f85149;
     border-radius: 2px;
 }
 .ai-approval-after ins {
-    background: #3fb95033;
+    background: rgba(63, 185, 80, 0.34);
+    color: #d6ffd9;
     text-decoration: none;
     border-radius: 2px;
 }
@@ -969,12 +983,17 @@
     padding: 5px 10px;
     border-radius: 5px;
     font-size: 12.5px;
+    color: var(--ed-text, #e6e6e6);
     background: var(--ed-bg-input, #3c3c3c);
 }
 
+/* Override base.css's global light `code` background so the path chip stays readable. */
 .ai-approval-record code {
     font-size: 11.5px;
-    opacity: 0.85;
+    background: rgba(0, 0, 0, 0.3);
+    color: inherit;
+    padding: 1px 5px;
+    border-radius: 3px;
 }
 
 .ai-approval-record-accepted { border-left: 3px solid #3fb950; }
