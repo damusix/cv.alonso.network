@@ -1,14 +1,14 @@
 // AI Schemas — Zod schemas for intent classification and CV response validation
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { PersonalSchema, SectionItemSchema, SectionSchema } from '../validation.js?v=2026.07.24.3';
+import { PersonalSchema, SectionItemSchema, SectionSchema } from '../validation.js?v=2026.07.24.4';
 export {
     CVDataSchema,
     PersonalSchema,
     SectionItemSchema,
     SectionSchema,
     LinkSchema
-} from '../validation.js?v=2026.07.24.3';
+} from '../validation.js?v=2026.07.24.4';
 
 export const AiIntentSchema = z.object({
     intent: z.enum([

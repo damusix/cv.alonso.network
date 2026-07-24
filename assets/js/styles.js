@@ -1,6 +1,6 @@
 // CSS Styles Management
 
-import { loadSavedStyles, saveStyles, clearSavedStyles } from './storage.js?v=2026.07.24.3';
+import { loadSavedStyles, saveStyles, clearSavedStyles } from './storage.js?v=2026.07.24.4';
 
 let defaultStyles = null;
 

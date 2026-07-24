@@ -1,7 +1,7 @@
 // Toast Notifications
 
-import { on } from './observable.js?v=2026.07.24.3';
-import { parseMarkdown } from './markdown.js?v=2026.07.24.3';
+import { on } from './observable.js?v=2026.07.24.4';
+import { parseMarkdown } from './markdown.js?v=2026.07.24.4';
 
 let toastContainer = null;
 
