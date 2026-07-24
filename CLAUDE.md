@@ -20,15 +20,15 @@ The core loop is:
 
 CSS customization follows a similar pattern: user writes CSS in the styles tab, which gets injected into the page on save.
 
-An AI chat assistant (third editor tab) can generate and modify CV data and CSS through a tool-based LLM agent. Every user message is classified into one of five intents before routing to a handler — see [`docs/wiki/ai-chat.md`](docs/wiki/ai-chat.md).
+An AI chat assistant (third editor tab) can generate and modify CV data and CSS through a tool-based LLM agent. One model drives a single tool loop — no intent classifier and no per-intent handlers; the model decides whether to chat, build from scratch (`set_*` accumulator tools), edit (`edit_cv`), or restyle (`edit_styles`). See [`docs/wiki/ai-chat.md`](docs/wiki/ai-chat.md).
 
 
 ## Tribal Knowledge
 
 
-### Why the AI uses a two-phase propose/accept pattern
+### Edits are gated by human approval, not a second tool call
 
-For partial and style updates, the outer (generator) model reasons about *what* to change and calls `generate_*`; that tool makes an inner call to the cheap router model to do the mechanical data generation. The outer model then evaluates the proposal and either calls `accept_*` or re-calls `generate_*` with corrective instructions. This is deliberate: it gives the expensive model a self-correcting loop over the cheap model's output without involving the user.
+`edit_cv`'s arguments ARE the change (`operation`/`path`/`data`) — there is no inner model that generates it and no `accept_*` tool. The human approval dialog is the code gate *between* the tool call and its result: `#requestApproval` emits `ai:approval-request`, the UI renders the before/after diff, applies on accept, and hands the applied CV back through `respond(accepted, cvData)` so the agent's editor-context snapshot stays current for the next edit in the same turn. This replaced an earlier two-phase propose/accept pattern (outer model calls `generate_*` → cheap router generates data → outer calls `accept_*`), which weak models looped on: they re-generated instead of committing. The human is the corrector now, so the model's self-accept step was redundant. `edit_styles` follows the same shape (args are the full CSS; user applies it). From-scratch generation still uses the `set_*` accumulator tools and a preview card.
 
 ### Known LangChain quirks
 
