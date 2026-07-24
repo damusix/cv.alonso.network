@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.23.1';
-import { emit, on } from '../observable.js?v=2026.07.23.1';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.23.1';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.23.1';
-import { configureSearch } from './search.js?v=2026.07.23.1';
-import { renderCV } from '../cv-renderer.js?v=2026.07.23.1';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.23.1';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.23.1';
-import { renderMarkdown } from '../markdown.js?v=2026.07.23.1';
+import { db } from '../db/db.js?v=2026.07.24.10';
+import { emit, on } from '../observable.js?v=2026.07.24.10';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.10';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.10';
+import { configureSearch } from './search.js?v=2026.07.24.10';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.10';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.10';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.10';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.10';
 import {
     settingsScreen,
     chatScreen,
@@ -23,8 +23,10 @@ import {
     generationStepSkeleton,
     profileEditDialog,
     clarificationCard,
+    approvalDialog,
+    approvalRecord,
     PROVIDERS
-} from './templates.js?v=2026.07.23.1';
+} from './templates.js?v=2026.07.24.10';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -33,22 +35,48 @@ let currentChatId = null;
 let currentScreen = 'settings';
 let pendingAttachments = [];
 let pendingClarificationRespond = null;
+// Tears down the open approval modal (remove overlay + key listener) if one is showing.
+// Null when no approval dialog is open. Used so Stop / stream-end can dismiss it.
+let closeApprovalDialog = null;
 
 // ─── Throttled markdown-rendering token appender ─────────────────────────────
 
+// Chat replies stream token-by-token. Re-rendering the *entire* growing buffer as
+// markdown and rebuilding the whole message subtree on every throttle tick is O(n²)
+// over a stream, and markdown-it's linkify pass makes it ~3x worse on large replies
+// that aren't fenced (e.g. a model that echoes a big JSON blob when proposing a
+// change). That repeated work is what freezes the tab. To stay responsive we render
+// large buffers as cheap escaped plain text while streaming and only run full
+// markdown once, at flush — and skip even that for pathologically huge replies.
+const STREAM_MARKDOWN_MAX = 20_000;  // chars: above this, stream as plain text
+const FLUSH_MARKDOWN_MAX = 200_000;  // chars: above this, the final paint stays plain text too
+
 let fullResponseRef = '';
 let tokenTarget = null;
+let lastRenderedLen = -1;
 
 export const getCurrentAiScreen = () => currentScreen;
 
+// Paint streamed content into `el`, preserving injected step/preview cards and approval
+// records (a re-render mid-stream must not wipe the user's accept/reject history).
+function paintStreamedContent(el, text, allowMarkdown) {
+    const preserved = [...el.querySelectorAll('.ai-gen-step, .ai-cv-preview, .ai-approval-record')];
+    el.innerHTML = allowMarkdown
+        ? renderMarkdown(text)
+        : `<pre class="ai-stream-raw" style="white-space:pre-wrap;overflow-x:auto;margin:0">${escapeHtml(text)}</pre>`;
+    for (const child of preserved) el.appendChild(child);
+}
+
 const renderStreamMarkdown = throttle(() => {
-    if (tokenTarget && fullResponseRef) {
-        const preserved = [...tokenTarget.querySelectorAll('.ai-gen-step, .ai-cv-preview')];
-        tokenTarget.innerHTML = renderMarkdown(fullResponseRef);
-        for (const el of preserved) tokenTarget.appendChild(el);
-        scrollMessagesToBottom();
-    }
-}, { delay: 500, throws: false });
+    if (!tokenTarget || !fullResponseRef) return;
+    if (fullResponseRef.length === lastRenderedLen) return; // no new tokens since last paint
+    lastRenderedLen = fullResponseRef.length;
+    paintStreamedContent(tokenTarget, fullResponseRef, fullResponseRef.length <= STREAM_MARKDOWN_MAX);
+    scrollMessagesToBottom();
+    // 150ms keeps a short leading phrase ("Let me check…") appearing promptly instead of
+    // sitting on a stale partial; the plain-text path above STREAM_MARKDOWN_MAX already
+    // caps the per-paint cost, so a shorter interval doesn't reintroduce the O(n²) freeze.
+}, { delay: 150, throws: false });
 
 function appendToken(el, fullResponse) {
     tokenTarget = el;
@@ -58,11 +86,10 @@ function appendToken(el, fullResponse) {
 
 function flushRemainingTokens() {
     if (tokenTarget && fullResponseRef) {
-        const preserved = [...tokenTarget.querySelectorAll('.ai-gen-step, .ai-cv-preview')];
-        tokenTarget.innerHTML = renderMarkdown(fullResponseRef);
-        for (const el of preserved) tokenTarget.appendChild(el);
+        paintStreamedContent(tokenTarget, fullResponseRef, fullResponseRef.length <= FLUSH_MARKDOWN_MAX);
         fullResponseRef = '';
         tokenTarget = null;
+        lastRenderedLen = -1;
         scrollMessagesToBottom();
     }
 }
@@ -197,6 +224,12 @@ const validators = {
             `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
         );
         if (!res.ok) throw new Error(`Gemini: ${res.status}`);
+    },
+    'fireworks': async (apiKey) => {
+        const res = await fetch('https://api.fireworks.ai/inference/v1/models', {
+            headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        if (!res.ok) throw new Error(`Fireworks: ${res.status}`);
     }
 };
 async function validateApiKey(provider, apiKey, model) {
@@ -400,7 +433,6 @@ async function handleSendMessage() {
     // Process with agent
     const bubbleState = { assistantBubble: null, contentEl: null };
     let fullResponse = '';
-    let classifiedIntent = null;
 
     // Build chat history from IndexedDB (source of truth)
     // Augment messages that have linked documents with their summaries
@@ -456,6 +488,44 @@ async function handleSendMessage() {
         pendingClarificationRespond = respond;
     });
 
+    // Register per-change approval listener (human-in-the-loop). The agent blocks on
+    // this until the user accepts/rejects. The dialog is a full-viewport modal mounted
+    // on document.body so it can use the whole screen for the before/after diff.
+    const cleanupApproval = on('ai:approval-request', ({ summary, operation, path, data, respond }) => {
+        // An insert adds a new entry at that index, so there is no meaningful "before".
+        const before = operation === 'insert' ? undefined : currentValueAtPath(path);
+
+        document.body.insertAdjacentHTML('beforeend', approvalDialog({ summary, operation, path, data, before }));
+        const overlay = document.body.lastElementChild;
+
+        const onKey = (e) => { if (e.key === 'Escape') decide(false); };
+        // Tear down the modal without deciding (used by Stop / stream-end).
+        closeApprovalDialog = () => {
+            overlay.remove();
+            document.removeEventListener('keydown', onKey);
+            closeApprovalDialog = null;
+        };
+
+        let settled = false;
+        const decide = (accepted) => {
+            if (settled) return;
+            settled = true;
+            // Apply on accept and hand the resulting CV back to the agent so its next edit
+            // this turn reads current data (fixes the stale-snapshot bug).
+            const applied = accepted ? applyCvFromAI(data, path, operation) : null;
+            closeApprovalDialog?.();
+            // Leave a compact record in the transcript so the review history is visible.
+            ensureAssistantBubble(bubbleState, messagesEl);
+            bubbleState.contentEl.insertAdjacentHTML('beforeend', approvalRecord({ operation, path, accepted }));
+            scrollMessagesToBottom();
+            respond(accepted, applied);
+        };
+
+        overlay.querySelector('.ai-approval-accept')?.addEventListener('click', () => decide(true));
+        overlay.querySelector('.ai-approval-reject')?.addEventListener('click', () => decide(false));
+        document.addEventListener('keydown', onKey);
+    });
+
     const [stream, streamErr] = await attempt(() =>
         agent.processMessage(text, chatHistory, attachmentsForAgent, editorContext, summary)
     );
@@ -464,7 +534,9 @@ async function handleSendMessage() {
         removeTypingIndicator();
         setInputLoading(false);
         cleanupClarification();
+        cleanupApproval();
         pendingClarificationRespond = null;
+        closeApprovalDialog?.();
 
         if (!isAbortError(streamErr)) showErrorInChat(formatApiError(streamErr));
 
@@ -474,10 +546,6 @@ async function handleSendMessage() {
     const [, iterErr] = await attempt(async () => {
         for await (const { type, chunk } of stream) {
             switch (type) {
-                case 'intent': {
-                    classifiedIntent = chunk;
-                    break;
-                }
 
                 case 'tool_status': {
                     const typing = document.getElementById('aiTyping');
@@ -485,8 +553,11 @@ async function handleSendMessage() {
                         typing.querySelector('.ai-message-content').innerHTML =
                             `<em class="ai-tool-status">${chunk}...</em>`;
                     }
-                    // Also update status bar inside assistant bubble
                     ensureAssistantBubble(bubbleState, messagesEl);
+                    // Paint the text streamed this round in full before the tool runs — the
+                    // stream is done for this round, so otherwise the bubble sits frozen on a
+                    // throttled partial line while the tool executes.
+                    flushRemainingTokens();
                     updateBubbleStatus(bubbleState.assistantBubble, chunk);
                     scrollMessagesToBottom();
                     break;
@@ -591,14 +662,17 @@ async function handleSendMessage() {
                         bubbleState.assistantBubble.dataset.messageId = savedAssistantMsg.id;
                     }
 
-                    // Update title if the router decided the topic is clear
-                    if (classifiedIntent?.shouldUpdateTitle && classifiedIntent?.suggestedTitle) {
-                        await attempt(() => db.setTitle(currentChatId, classifiedIntent.suggestedTitle));
-                        const select = getContainer()?.querySelector('.ai-chat-select');
-                        if (select) {
-                            const opt = select.querySelector(`option[value="${currentChatId}"]`);
-                            if (opt) opt.textContent = classifiedIntent.suggestedTitle;
-                        }
+                    // Title the chat from the first user message (deterministic — no extra
+                    // LLM call now that the intent classifier is gone). Only while the chat
+                    // is still the default 'New Chat', so later turns don't clobber it.
+                    const titleOpt = getContainer()?.querySelector(`.ai-chat-select option[value="${currentChatId}"]`);
+                    if (titleOpt && titleOpt.textContent.trim() === 'New Chat' && text?.trim()) {
+                        const d = new Date();
+                        const datePrefix = `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+                        const trimmed = text.trim().replace(/\s+/g, ' ');
+                        const title = `${datePrefix} - ${trimmed.slice(0, 40)}${trimmed.length > 40 ? '…' : ''}`;
+                        await attempt(() => db.setTitle(currentChatId, title));
+                        titleOpt.textContent = title;
                     }
                     break;
                 }
@@ -609,7 +683,9 @@ async function handleSendMessage() {
     removeTypingIndicator();
     removeBubbleStatus(bubbleState.assistantBubble);
     cleanupClarification();
+    cleanupApproval();
     pendingClarificationRespond = null;
+    closeApprovalDialog?.();
     // Disable any unanswered clarification cards
     const openCards = messagesEl?.querySelectorAll('.ai-clarification:not(.ai-clarification-answered)');
     if (openCards) {
@@ -839,6 +915,19 @@ export function applyCvFromAI(cvData, path, operation = 'set') {
     saveCVData(code, finalData);
     renderCV(finalData);
     emit('ai:cv-applied', { data: { cvData: finalData } });
+    // Returned so the approval gate can hand the applied CV back to the agent, keeping its
+    // editor-context snapshot current for the next edit in the same turn.
+    return finalData;
+}
+
+// Current value at a dot-path in the saved CV — the "before" side of an approval diff.
+// reach() returns undefined for missing paths, which the card renders as "nothing here yet".
+// A falsy path means the whole CV (an edit that replaces everything), so return the root.
+function currentValueAtPath(path) {
+    const saved = loadSavedData();
+    if (!saved.result) return undefined;
+    if (!path) return saved.result;
+    return reach(saved.result, path);
 }
 
 // ─── Event Delegation ────────────────────────────────────────────────────────
@@ -1052,7 +1141,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.23.1');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.10');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1295,7 +1384,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.23.1');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.10');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();

@@ -4,7 +4,10 @@
     .editor-panel,
     .editor-pane,
     .divider,
-    .action-menu-container {
+    .action-menu-container,
+    /* A toast (e.g. "CV saved!" after ⌘S) sits above the CV and otherwise bakes
+     * into the print output. */
+    .toasts {
         display: none !important;
     }
 
@@ -27,8 +30,15 @@
         overflow: visible;
     }
 
-    .cv-container {
+    /* split-pane.css caps the CV at `.cv-pane .cv-container { max-width: 900px;
+     * margin: 0 auto; padding: var(--spacing-xl) }` — specificity (0,2,0). A bare
+     * `.cv-container` here is (0,1,0) and LOSES even in print media (media queries add
+     * no specificity), so the cap, the centering gutter, and the inner padding all
+     * survived into print. Match the specificity to actually clear them: the CV then
+     * fills the full printable area (the @page box minus its margin). */
+    .cv-pane .cv-container {
         max-width: none;
+        margin: 0;
         box-shadow: none;
         padding: 0;
     }
@@ -127,6 +137,11 @@
      * this close together, an under-separated item boundary reads as one job. */
     main section .item {
         margin-bottom: 0.8rem;
+        /* Keep a whole role on one page so its heading (title/employer/dates) never
+         * gets stranded on the previous page while its bullets flow onto the next.
+         * A single role taller than a full page will still split (CSS can't repeat
+         * an arbitrary heading across pages) — but that case is rare. */
+        break-inside: avoid;
     }
 
     main section .item .tags .tag {
@@ -136,5 +151,7 @@
 }
 
 @page {
-    margin: 0.5in;
+    /* 0.4in reclaims ~0.2in on every edge vs the old 0.5in — a bit more content per
+     * page, still clear of the ~0.25in unprintable border most printers enforce. */
+    margin: 0.4in;
 }

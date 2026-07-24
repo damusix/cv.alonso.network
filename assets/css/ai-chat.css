@@ -817,3 +817,196 @@
 
 .ai-messages::-webkit-scrollbar-thumb:hover,
 .ai-settings-body::-webkit-scrollbar-thumb:hover { background: #777; }
+
+/* ─── Human-in-the-loop change approval (modal) ──────────────────────────── */
+
+/* Mounted on document.body (outside .editor-panel), so it declares its own theme
+ * tokens and uses position:fixed to take the whole viewport for the diff. */
+.ai-approval-overlay {
+    --ed-bg-card: #2d2d30;
+    --ed-bg-input: #3c3c3c;
+    --ed-border-input: #555;
+    --ed-accent: #007acc;
+    --ed-text: #eee;
+    --ed-text-muted: #999;
+
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.62);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    animation: ai-approval-fade 0.12s ease-out;
+}
+
+@keyframes ai-approval-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.ai-approval-modal {
+    background: var(--ed-bg-card);
+    color: var(--ed-text);
+    border: 1px solid var(--ed-border-input);
+    border-radius: 10px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+    width: min(1040px, 94vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 18px 14px;
+    gap: 12px;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+
+.ai-approval-modal-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ai-approval-title {
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ai-approval-title code {
+    font-size: 13px;
+    background: var(--ed-bg-input);
+    padding: 2px 8px;
+    border-radius: 5px;
+}
+
+.ai-approval-hint {
+    font-size: 12px;
+    color: var(--ed-text-muted);
+}
+
+.ai-approval-summary {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ed-text-muted);
+}
+
+/* The diff area is a single scrollable frame. Two presentations mount inside it:
+ * `.ai-diff-unified` (git-style line diff) and `.ai-diff-prose` (inline word diff). */
+.ai-approval-diff {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border-radius: 6px;
+    border: 1px solid #3a3a3a;
+    background: #1e1e1e;
+}
+
+/* Unified line diff — the familiar git / GitHub look: a gutter marker per line, removed
+ * lines red, added lines green, context grey. Rows are <div>/<span>, never <code>, so the
+ * global light `code` background in base.css can't bleed in and wash the text out. */
+.ai-diff-unified {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    font-variant-ligatures: none;
+    padding: 6px 0;
+}
+
+.ai-diff-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 0 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.ai-diff-gutter {
+    flex: 0 0 auto;
+    width: 0.8em;
+    text-align: center;
+    color: #6e7681;
+    user-select: none;
+}
+
+.ai-diff-text { flex: 1; min-width: 0; }
+
+.ai-diff-context .ai-diff-text { color: #cfcfcf; }
+
+.ai-diff-del { background: rgba(248, 81, 73, 0.15); }
+.ai-diff-del .ai-diff-gutter,
+.ai-diff-del .ai-diff-text { color: #ffb3af; }
+
+.ai-diff-ins { background: rgba(63, 185, 80, 0.15); }
+.ai-diff-ins .ai-diff-gutter,
+.ai-diff-ins .ai-diff-text { color: #97e6a2; }
+
+/* Prose diff for a plain-string edit — inline removed/added words in reading order. */
+.ai-diff-prose {
+    padding: 14px 16px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: #d0d0d0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Small horizontal padding keeps a removed word and its replacement visually distinct
+ * when they land adjacent (otherwise "with"+"and" reads as one joined token). */
+.ai-diff-prose del {
+    background: rgba(248, 81, 73, 0.28);
+    color: #ffd7d5;
+    text-decoration: line-through;
+    text-decoration-color: #f85149;
+    border-radius: 2px;
+    padding: 1px 3px;
+}
+.ai-diff-prose ins {
+    background: rgba(63, 185, 80, 0.30);
+    color: #d6ffd9;
+    text-decoration: none;
+    border-radius: 2px;
+    padding: 1px 3px;
+}
+
+.ai-approval-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.ai-approval-actions button {
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+/* Compact record left in the chat transcript after a decision */
+.ai-approval-record {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 6px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    color: var(--ed-text, #e6e6e6);
+    background: var(--ed-bg-input, #3c3c3c);
+}
+
+/* Override base.css's global light `code` background so the path chip stays readable. */
+.ai-approval-record code {
+    font-size: 11.5px;
+    background: rgba(0, 0, 0, 0.3);
+    color: inherit;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.ai-approval-record-accepted { border-left: 3px solid #3fb950; }
+.ai-approval-record-accepted i { color: #3fb950; }
+.ai-approval-record-rejected { border-left: 3px solid #f85149; }
+.ai-approval-record-rejected i { color: #f85149; }

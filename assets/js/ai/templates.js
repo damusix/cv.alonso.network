@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.23.1';
-import { formatByteSize } from '../utils.js?v=2026.07.23.1';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.10';
+import { formatByteSize } from '../utils.js?v=2026.07.24.10';
 
 const PROVIDERS = [
     {
@@ -21,6 +21,15 @@ const PROVIDERS = [
         name: 'Gemini',
         smallDefault: 'gemini-3-flash-preview',
         responseDefault: 'gemini-3-pro-preview'
+    },
+    {
+        id: 'fireworks',
+        name: 'Fireworks',
+        // Both models must support tool calling (the router uses withStructuredOutput,
+        // the generator drives the tool-calling agent). Kimi K2 is Fireworks' documented
+        // function-calling model; verify `supportsTools` if you swap these out.
+        smallDefault: 'accounts/fireworks/models/llama-v3p1-8b-instruct',
+        responseDefault: 'accounts/fireworks/models/kimi-k2-instruct-0905'
     }
 ];
 
@@ -296,6 +305,147 @@ export function applyAllButton() {
                 data-action="apply-all-cv">
             Apply All Changes
         </button>
+    </div>`;
+}
+
+const OP_LABEL = { delete: 'Remove', insert: 'Insert' };
+const opLabelFor = (operation) => OP_LABEL[operation] || 'Update';
+
+// Renders any CV value into readable, line-oriented text for diffing. Plain strings pass
+// through; objects/arrays become indented `key: value` / `- item` lines rather than raw
+// JSON, so the diff reads like a document instead of a code blob.
+function toDiffText(value, depth = 0) {
+    const pad = '  '.repeat(depth);
+    if (value === undefined || value === null) return '';
+    if (typeof value !== 'object') return `${pad}${value}`;
+    if (Array.isArray(value)) {
+        return value.map((item) => (item && typeof item === 'object')
+            ? `${pad}-\n${toDiffText(item, depth + 1)}`
+            : `${pad}- ${item ?? ''}`).join('\n');
+    }
+    return Object.entries(value).map(([k, v]) => (v && typeof v === 'object')
+        ? `${pad}${k}:\n${toDiffText(v, depth + 1)}`
+        : `${pad}${k}: ${v ?? ''}`).join('\n');
+}
+
+// Standard LCS DP table over two token arrays, shared by the word- and line-level diffs.
+// dp[i][j] = length of the longest common subsequence of a[i:] and b[j:].
+function lcsTable(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = m - 1; i >= 0; i--) {
+        for (let j = n - 1; j >= 0; j--) {
+            dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    return dp;
+}
+
+// Inline word-level diff of two strings (GitHub prose style): one HTML stream with removed
+// words in <del> and added words in <ins>, in reading order. Whitespace is its own token so
+// text reflows naturally. Falls back to whole-string del/ins when the LCS table is wasteful.
+function wordDiffInline(beforeStr, afterStr) {
+    const tok = (s) => s.match(/\s+|\S+/g) || [];
+    const a = tok(beforeStr), b = tok(afterStr);
+    if (a.length * b.length > 250_000) {
+        return `<del>${escapeHtml(beforeStr)}</del><ins>${escapeHtml(afterStr)}</ins>`;
+    }
+    const dp = lcsTable(a, b);
+    const out = [];
+    let i = 0, j = 0;
+    while (i < a.length && j < b.length) {
+        if (a[i] === b[j]) { out.push(escapeHtml(a[i])); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
+        else { out.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
+    }
+    while (i < a.length) { out.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
+    while (j < b.length) { out.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
+    return out.join('');
+}
+
+// Line-level diff rendered as a unified diff — the familiar git / GitHub look: one column,
+// a gutter marker per line (space/-/+), removed lines red, added lines green, context grey.
+const DIFF_GUTTER = { context: ' ', del: '-', ins: '+' };
+function unifiedDiff(beforeText, afterText) {
+    const a = beforeText ? beforeText.split('\n') : [];
+    const b = afterText ? afterText.split('\n') : [];
+    let rows;
+    if (a.length * b.length > 400_000) {
+        rows = [...a.map((t) => ({ type: 'del', text: t })), ...b.map((t) => ({ type: 'ins', text: t }))];
+    } else {
+        const dp = lcsTable(a, b);
+        rows = [];
+        let i = 0, j = 0;
+        while (i < a.length && j < b.length) {
+            if (a[i] === b[j]) { rows.push({ type: 'context', text: a[i] }); i++; j++; }
+            else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ type: 'del', text: a[i] }); i++; }
+            else { rows.push({ type: 'ins', text: b[j] }); j++; }
+        }
+        while (i < a.length) { rows.push({ type: 'del', text: a[i] }); i++; }
+        while (j < b.length) { rows.push({ type: 'ins', text: b[j] }); j++; }
+    }
+    return rows.map((r) =>
+        `<div class="ai-diff-row ai-diff-${r.type}"><span class="ai-diff-gutter">${DIFF_GUTTER[r.type]}</span><span class="ai-diff-text">${escapeHtml(r.text) || ' '}</span></div>`
+    ).join('');
+}
+
+// Picks the diff presentation for a change: an inline word diff for a plain-string edit
+// (reads like prose), a unified line diff for structured values, and an all-removed /
+// all-added block for delete / insert.
+function renderDiffBody(operation, before, data) {
+    if (operation === 'delete') {
+        return `<div class="ai-diff-unified">${unifiedDiff(toDiffText(before), '')}</div>`;
+    }
+    if (operation === 'insert' || before === undefined) {
+        return `<div class="ai-diff-unified">${unifiedDiff('', toDiffText(data))}</div>`;
+    }
+    if (typeof before === 'string' && typeof data === 'string') {
+        // Multi-line strings (e.g. CSS) read better as a unified line diff; a single
+        // paragraph (e.g. a summary) reads better as an inline word diff.
+        if (before.includes('\n') || data.includes('\n')) {
+            return `<div class="ai-diff-unified">${unifiedDiff(before, data)}</div>`;
+        }
+        return `<div class="ai-diff-prose">${wordDiffInline(before, data)}</div>`;
+    }
+    return `<div class="ai-diff-unified">${unifiedDiff(toDiffText(before), toDiffText(data))}</div>`;
+}
+
+/**
+ * Human-in-the-loop approval modal: a full-viewport dialog showing a single proposed
+ * change as a before/after word diff, with Accept / Reject. Declares its own theme
+ * tokens because it is mounted on document.body (outside .editor-panel's token scope).
+ * @param {{summary: string, operation: string, path: string, data: *, before: *}} change
+ */
+export function approvalDialog({ summary, operation, path, data, before }) {
+    const opLabel = opLabelFor(operation);
+    const diffBody = renderDiffBody(operation, before, data);
+
+    return `
+    <div class="ai-approval-overlay">
+        <div class="ai-approval-modal" role="dialog" aria-modal="true">
+            <div class="ai-approval-modal-header">
+                <span class="ai-approval-title">
+                    <i class="fa-solid fa-code-compare"></i>
+                    ${escapeHtml(opLabel)} <code>${escapeHtml(path || '(whole CV)')}</code>
+                </span>
+                <span class="ai-approval-hint">Review before applying</span>
+            </div>
+            ${summary ? `<div class="ai-approval-summary">${escapeHtml(summary)}</div>` : ''}
+            <div class="ai-approval-diff">${diffBody}</div>
+            <div class="ai-approval-actions">
+                <button class="ai-btn-ghost ai-approval-reject"><i class="fa-solid fa-xmark"></i> Reject</button>
+                <button class="ai-btn-primary ai-approval-accept"><i class="fa-solid fa-check"></i> Accept &amp; apply</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+// Compact inline record left in the transcript after a change is accepted/rejected.
+export function approvalRecord({ operation, path, accepted }) {
+    return `
+    <div class="ai-approval-record ai-approval-record-${accepted ? 'accepted' : 'rejected'}">
+        <i class="fa-solid fa-${accepted ? 'check' : 'xmark'}"></i>
+        <span>${accepted ? 'Accepted' : 'Rejected'} — ${escapeHtml(opLabelFor(operation))} <code>${escapeHtml(path || '(whole CV)')}</code></span>
     </div>`;
 }
 

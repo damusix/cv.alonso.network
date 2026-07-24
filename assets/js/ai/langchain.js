@@ -1,30 +1,19 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.03.27.1';
+import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.10';
 import {
-    AiIntentSchema,
-    AiPartialUpdatesSchema,
-    AiStyleUpdateSchema,
+    AiPartialUpdateSchema,
     CVDataSchema,
-    LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.03.27.1';
+} from './schemas.js?v=2026.07.24.10';
 import {
-    ROUTER_SYSTEM_PROMPT,
-    CHITCHAT_SYSTEM_PROMPT,
-    CLARIFICATION_SYSTEM_PROMPT,
-    PARTIAL_UPDATE_SYSTEM_PROMPT,
-    STYLE_UPDATE_SYSTEM_PROMPT,
-    GENERATION_AGENT_PROMPT,
-    INNER_PARTIAL_UPDATE_PROMPT,
-    INNER_STYLE_UPDATE_PROMPT,
+    AGENT_SYSTEM_PROMPT,
     DATE_CONTEXT,
-    buildContextPrompt
-} from './prompts.js?v=2026.03.27.1';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.03.27.1';
-import { once, emit } from '../observable.js?v=2026.03.27.1';
+} from './prompts.js?v=2026.07.24.10';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.10';
+import { once, emit } from '../observable.js?v=2026.07.24.10';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -32,8 +21,28 @@ const CDN = {
     openai: 'https://cdn.jsdelivr.net/npm/@langchain/openai@0.5.12/+esm',
     anthropic: 'https://cdn.jsdelivr.net/npm/@langchain/anthropic@0.3.21/+esm',
     'google-genai': 'https://cdn.jsdelivr.net/npm/@langchain/google-genai@0.2.12/+esm',
+    // Fireworks exposes an OpenAI-compatible API, so it reuses the OpenAI adapter
+    // (ChatOpenAI) with a base-URL override — see #buildBaseConfig.
+    fireworks: 'https://cdn.jsdelivr.net/npm/@langchain/openai@0.5.12/+esm',
     core: 'https://cdn.jsdelivr.net/npm/@langchain/core/messages/+esm',
 };
+
+// Fireworks OpenAI-compatible endpoint. Model ids look like
+// `accounts/fireworks/models/<name>` (set in Settings).
+const FIREWORKS_BASE_URL = 'https://api.fireworks.ai/inference/v1';
+
+// The OpenAI SDK injects x-stainless-* telemetry headers on every request. Fireworks'
+// CORS policy allows a FIXED header set (Authorization/Content-Type/Accept/Fireworks-
+// Playground) and does not include x-stainless-*, so the browser preflight is rejected
+// and the call fails with a CORS error. Strip those headers before the request so the
+// preflight only asks for headers Fireworks permits. (Telemetry-only — safe to drop.)
+function stripStainlessFetch(url, init = {}) {
+    const headers = new Headers(init.headers || undefined);
+    for (const key of [...headers.keys()]) {
+        if (key.toLowerCase().startsWith('x-stainless')) headers.delete(key);
+    }
+    return fetch(url, { ...init, headers });
+}
 
 // ─── Provider Factories ──────────────────────────────────────────────────────
 
@@ -41,11 +50,12 @@ const PROVIDER_FACTORY = {
     openai: null,
     anthropic: null,
     'google-genai': null,
+    fireworks: null,
 };
 
 /**
  * Lazy-loads a LangChain provider module from CDN and caches it.
- * @param {'openai'|'anthropic'|'google-genai'} provider
+ * @param {'openai'|'anthropic'|'google-genai'|'fireworks'} provider
  * @returns {Promise<Function>} The chat model constructor
  */
 async function loadProvider(provider) {
@@ -60,6 +70,7 @@ async function loadProvider(provider) {
         openai: mod.ChatOpenAI,
         anthropic: mod.ChatAnthropic,
         'google-genai': mod.ChatGoogleGenerativeAI,
+        fireworks: mod.ChatOpenAI,
     };
 
     PROVIDER_FACTORY[provider] = constructors[provider];
@@ -183,48 +194,36 @@ const GENERATION_TOOLS = [
     },
 ];
 
-const PARTIAL_UPDATE_TOOLS = [
+// edit_cv's arguments ARE the change (no inner model generates it): the standard
+// operation/path/data patch plus a one-line summary shown above the approval diff.
+const EditCvSchema = AiPartialUpdateSchema.extend({
+    summary: z.string().describe('One short sentence describing this change, shown to the user above the before/after diff.'),
+});
+
+const CV_EDIT_TOOLS = [
     {
-        name: 'generate_partial_update',
-        description: 'Generate a CV partial update proposal. Provide clear instructions describing what to change. The tool will produce structured changes using the current CV data. Review the returned summary — if unsatisfied, call this tool again with corrective instructions. When satisfied, call accept_partial_update with the proposal ID.',
-        schema: z.object({
-            instructions: z.string().describe('Detailed instructions for what CV changes to make. Include specifics: which sections, items, fields to modify. If retrying, explain what was wrong with the previous attempt and what to fix.'),
-        }),
+        name: 'edit_cv',
+        description: 'Make ONE targeted change to the existing CV. The tool\'s arguments ARE the change: an operation (set/insert/delete), a dot-path, and the data. The change is shown to the user as a before/after diff and applied on their approval — there is NO separate accept step. The result tells you whether the user accepted or rejected. For several changes, call this once per change, one at a time.',
+        schema: EditCvSchema,
     },
     {
-        name: 'accept_partial_update',
-        description: 'Accept a partial update proposal after reviewing it. Only call this when you are satisfied with the proposal summary.',
+        name: 'edit_styles',
+        description: 'Restyle the CV. Provide the COMPLETE CSS stylesheet (the user\'s existing customizations plus your changes) — it replaces their entire custom stylesheet. The user is shown the result to apply; there is no separate accept step.',
         schema: z.object({
-            proposalId: z.string().describe('The proposal ID returned by generate_partial_update'),
+            css: z.string().min(1).describe('The complete CSS to apply. Replaces the entire custom stylesheet.'),
+            summary: z.string().describe('A brief description of the visual change.'),
         }),
     },
 ];
 
-const STYLE_UPDATE_TOOLS = [
-    {
-        name: 'generate_style_update',
-        description: 'Generate a CSS style update proposal. Provide clear instructions describing what visual changes to make. The tool will produce complete CSS using the current stylesheet. Review the returned summary — if unsatisfied, call this tool again with corrective instructions. When satisfied, call accept_style_update with the proposal ID.',
-        schema: z.object({
-            instructions: z.string().describe('Detailed instructions for what CSS changes to make. If retrying, explain what was wrong and what to fix.'),
-        }),
-    },
-    {
-        name: 'accept_style_update',
-        description: 'Accept a style update proposal after reviewing it. Only call this when you are satisfied with the proposal summary.',
-        schema: z.object({
-            proposalId: z.string().describe('The proposal ID returned by generate_style_update'),
-        }),
-    },
-];
+// The single tool set bound to the agent model. The model decides which to use per the
+// system prompt — no classifier, no per-intent tool subsets.
+const ALL_TOOLS = [...AGENT_TOOLS, ...GENERATION_TOOLS, ...CV_EDIT_TOOLS];
 
-const UPDATE_TOOL_NAMES = {
-    generate_partial_update: true,
-    accept_partial_update: true,
-    generate_style_update: true,
-    accept_style_update: true,
-};
-
+// set_* tools accumulate a from-scratch CV; edit_* tools mutate an existing one. Both are
+// suppressed from raw tool_start/tool_done in the UI (the user sees gen steps / approval).
 const GEN_TOOL_NAMES = { set_personal_info: true, set_summary: true, add_section: true };
+const EDIT_TOOL_NAMES = { edit_cv: true, edit_styles: true };
 
 const TOOL_STATUS_LABELS = {
     read_resume: 'Reading resume',
@@ -234,10 +233,8 @@ const TOOL_STATUS_LABELS = {
     set_personal_info: 'Generating personal info',
     set_summary: 'Writing summary',
     add_section: 'Generating section',
-    generate_partial_update: 'Generating update',
-    accept_partial_update: 'Accepting update',
-    generate_style_update: 'Generating styles',
-    accept_style_update: 'Accepting styles',
+    edit_cv: 'Preparing change',
+    edit_styles: 'Generating styles',
     tavily_search: 'Searching with Tavily',
     tavily_extract: 'Extracting page content',
     tavily_crawl: 'Crawling website',
@@ -250,7 +247,13 @@ const TOOL_STATUS_LABELS = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const LLM_TIMEOUT = 60_000;
-const MAX_TOOL_ROUNDS = 100;
+// A confused model can otherwise burn one LLM call per round with nothing to show;
+// well-behaved tool sequences finish in a handful of rounds.
+const MAX_TOOL_ROUNDS = 12;
+// Rounds alone don't bound cost: a model can emit many tool calls in a SINGLE round
+// (observed: a weak model spamming generate_* without ever converging). This is the hard
+// ceiling on total tool executions per user turn — the real runaway backstop.
+const MAX_TOOL_CALLS = 24;
 
 /**
  * Fetches a web page and extracts readable text content.
@@ -349,17 +352,8 @@ export class CvAgent {
     /** @type {object|null} LangChain chat model for generation (reasoning) */
     #generatorModel = null;
 
-    /** @type {object|null} Generator model with agent tools only */
-    #agentToolModel = null;
-
-    /** @type {object|null} Generator model with agent + generation tools */
-    #genToolModel = null;
-
-    /** @type {object|null} Generator model with agent + partial update tools */
-    #partialUpdateToolModel = null;
-
-    /** @type {object|null} Generator model with agent + style update tools */
-    #styleUpdateToolModel = null;
+    /** @type {object|null} Generator model bound with the full tool set (the agent loop) */
+    #toolModel = null;
 
     /** @type {object} Accumulated context from clarification rounds */
     #contextBuffer = {};
@@ -391,13 +385,10 @@ export class CvAgent {
     /** @type {((fact: string) => Promise<void>)|null} Callback to persist a learned fact */
     #factSaver = null;
 
-    /** @type {Map<string, object>} Proposals awaiting acceptance (deciding map) */
-    #proposalMap = new Map();
+    /** @type {{css: string, summary: string}|null} Last edit_styles result, yielded as css_update after the stream */
+    #pendingStyle = null;
 
-    /** @type {Array<object>} Accepted proposals (final output) */
-    #pendingChanges = [];
-
-    /** @type {Array<{role: string, content: string}>} Chat history for inner tool calls */
+    /** @type {Array<{role: string, content: string}>} Chat history for the current turn */
     #currentChatHistory = [];
 
     /**
@@ -405,10 +396,11 @@ export class CvAgent {
      * a cheap router model and a reasoning generator model with tools.
      *
      * @param {object} settings
-     * @param {string} settings.activeProvider - 'openai' | 'anthropic' | 'google-genai'
+     * @param {string} settings.activeProvider - 'openai' | 'anthropic' | 'google-genai' | 'fireworks'
      * @param {object} settings['provider:openai']
      * @param {object} settings['provider:anthropic']
      * @param {object} settings['provider:google-genai']
+     * @param {object} settings['provider:fireworks']
      */
     async configure(settings) {
         const provider = settings.activeProvider;
@@ -425,10 +417,17 @@ export class CvAgent {
         // OpenAI reasoning models (o1, o3, etc.) only accept temperature=1
         const skipTemp = provider === 'openai';
 
+        // Fireworks enforces strict json_schema/tool schemas via constrained-generation
+        // grammar, whose builder fails on this app's deep union/optional schemas ("Failed
+        // to build a constrained-generation grammar"). disable_grammar bypasses it; the
+        // model still emits JSON/tool calls, which we validate with Zod and retry.
+        const fireworksKwargs = provider === 'fireworks' ? { disable_grammar: true } : null;
+
         this.#routerModel = new ModelClass({
             ...baseConfig,
             model: providerSettings.smallModel,
             ...(skipTemp ? {} : { temperature: 0 }),
+            ...(fireworksKwargs ? { modelKwargs: fireworksKwargs } : {}),
         });
 
         // OpenAI models (gpt-5, etc.) reject max_tokens; must use max_completion_tokens.
@@ -443,6 +442,7 @@ export class CvAgent {
             model: providerSettings.responseModel,
             ...(skipTemp ? {} : { temperature: 0.7 }),
             ...tokenLimit,
+            ...(fireworksKwargs ? { modelKwargs: fireworksKwargs } : {}),
         });
 
         // LangChain Anthropic adapter defaults topP/topK to -1 which the API rejects
@@ -453,18 +453,10 @@ export class CvAgent {
             }
         }
 
-        // Bind tools to the generator model
-        const [agentToolModel] = attemptSync(() => this.#generatorModel.bindTools(AGENT_TOOLS));
-        this.#agentToolModel = agentToolModel || this.#generatorModel;
-
-        const [genToolModel] = attemptSync(() => this.#generatorModel.bindTools([...AGENT_TOOLS, ...GENERATION_TOOLS]));
-        this.#genToolModel = genToolModel || this.#generatorModel;
-
-        const [partialUpdateToolModel] = attemptSync(() => this.#generatorModel.bindTools([...AGENT_TOOLS, ...PARTIAL_UPDATE_TOOLS]));
-        this.#partialUpdateToolModel = partialUpdateToolModel || this.#generatorModel;
-
-        const [styleUpdateToolModel] = attemptSync(() => this.#generatorModel.bindTools([...AGENT_TOOLS, ...STYLE_UPDATE_TOOLS]));
-        this.#styleUpdateToolModel = styleUpdateToolModel || this.#generatorModel;
+        // Bind the full tool set to the generator model — one agent loop drives everything
+        // (chat, from-scratch generation, targeted edits, styling). No per-intent subsets.
+        const [toolModel] = attemptSync(() => this.#generatorModel.bindTools(ALL_TOOLS));
+        this.#toolModel = toolModel || this.#generatorModel;
 
         this.#provider = provider;
         this.#userProfile = settings['user:profile'] || null;
@@ -487,6 +479,17 @@ export class CvAgent {
             },
             'google-genai': {
                 apiKey,
+            },
+            // OpenAI-compatible: ChatOpenAI + Fireworks base URL. The custom fetch
+            // strips x-stainless-* headers the OpenAI SDK adds, which Fireworks' CORS
+            // policy rejects (see stripStainlessFetch).
+            fireworks: {
+                openAIApiKey: apiKey,
+                configuration: {
+                    baseURL: FIREWORKS_BASE_URL,
+                    dangerouslyAllowBrowser: true,
+                    fetch: stripStainlessFetch,
+                },
             },
         };
 
@@ -531,41 +534,6 @@ export class CvAgent {
         }
 
         return `${DATE_CONTEXT}\n\n${prompt}`;
-    }
-
-    /**
-     * Classifies user intent using the router model.
-     * @param {object} opts
-     * @param {string} opts.userMessage
-     * @param {Array} opts.chatHistory
-     * @param {AbortSignal} [opts.signal]
-     * @returns {Promise<object>} Parsed intent object
-     */
-    async #classifyIntent({ userMessage, chatHistory, attachments, signal }) {
-
-        // Include attachment names in the classifier message so it has context
-        let classifierMessage = userMessage;
-        if (attachments && attachments.length > 0) {
-            const fileNames = attachments.map(a => a.name).join(', ');
-            classifierMessage = (userMessage ? userMessage + '\n' : '') + `[User attached files: ${fileNames}]`;
-        }
-
-        return retry(async () => {
-            const structuredRouter = this.#routerModel.withStructuredOutput(AiIntentSchema, { includeRaw: true });
-            const messages = [
-                ['system', this.#buildSystemPrompt(ROUTER_SYSTEM_PROMPT)],
-                ...toLangChainMessages(chatHistory),
-                ['human', classifierMessage || 'The user sent a message.'],
-            ];
-            const [response, err] = await attempt(
-                withTimeout(() => structuredRouter.invoke(messages, { signal }), { timeout: LLM_TIMEOUT })
-            );
-            if (err) throw err;
-
-            const result = response?.parsed ?? response?.raw?.tool_calls?.[0]?.args ?? response;
-            if (result == null) throw new Error('Intent classification returned empty response');
-            return AiIntentSchema.parse(result);
-        }, { retries: 1, throwLastError: true, signal });
     }
 
     /**
@@ -614,83 +582,43 @@ export class CvAgent {
                 }
                 return `Section "${toolCall.args.heading}" added with ${toolCall.args.items.length} items.`;
 
-            case 'generate_partial_update': {
-                const proposalId = crypto.randomUUID();
-                const cvData = this.#editorContext?.js || '';
-                const instructions = toolCall.args.instructions;
+            case 'edit_cv': {
+                // The model already produced the change (operation/path/data) — no inner
+                // model. Validate it against the schema first: the provider does NOT enforce
+                // the tool-arg shape when grammar/constrained generation is disabled (e.g.
+                // Fireworks), so a weak model could otherwise push malformed data straight
+                // into applyCvFromAI. On failure, tell the model to fix and retry.
+                const [change, parseErr] = attemptSync(() => EditCvSchema.parse(toolCall.args));
+                if (parseErr) {
+                    return `The change didn't match the required shape: ${parseErr.message}. Fix the operation/path/data and call edit_cv again.`;
+                }
+                const { operation, path, data, summary } = change;
+                // Send the validated change to the user for before/after approval. On accept
+                // the UI applies it and hands back the new CV so a follow-up edit this turn
+                // reads current data (no stale-snapshot bug). No accept tool to loop on.
+                const [decision, appErr] = await attempt(() => this.#requestApproval({
+                    summary, operation, path, data,
+                }, signal));
+                if (appErr) throw appErr; // aborted — propagate so the stream stops
 
-                const systemPrompt = `${DATE_CONTEXT}\n\n${INNER_PARTIAL_UPDATE_PROMPT}\n\n[Current CV Data]\n\`\`\`javascript\n${cvData}\n\`\`\``;
-                const chatHistorySlice = this.#currentChatHistory || [];
-                const userPrompt = chatHistorySlice.map(m =>
-                    `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-                ).join('\n') + `\n\nInstructions: ${instructions}`;
-
-                const structured = this.#routerModel.withStructuredOutput(AiPartialUpdatesSchema, { includeRaw: true });
-                const msgs = [['system', systemPrompt], ['human', userPrompt]];
-
-                const [response, err] = await attempt(
-                    withTimeout(() => structured.invoke(msgs, { signal }), { timeout: LLM_TIMEOUT })
-                );
-
-                if (err) return `Generation failed: ${err.message}. Try again with different instructions.`;
-
-                const data = response?.parsed ?? response?.raw?.tool_calls?.[0]?.args;
-                if (!data) return 'Generation returned empty result. Try again with more specific instructions.';
-
-                const [parsed, parseErr] = attemptSync(() => AiPartialUpdatesSchema.parse(data));
-                if (parseErr) return `Generation produced invalid data: ${parseErr.message}. Try again.`;
-
-                this.#proposalMap.set(proposalId, { id: proposalId, type: 'partial', ...parsed });
-
-                const paths = parsed.updates.map(u => u.path).join(', ');
-                return `Proposal ${proposalId}: ${parsed.explanation}. ${parsed.updates.length} update(s) affecting: ${paths}.`;
+                if (decision.accepted) {
+                    if (decision.cvData) {
+                        this.#editorContext = {
+                            ...this.#editorContext,
+                            js: `return ${JSON.stringify(decision.cvData, null, 4)};`,
+                        };
+                    }
+                    return `The user APPROVED and applied this change (${operation} at ${path || 'whole CV'}). Move on to the next change, or stop if all requested changes are done.`;
+                }
+                return `The user REJECTED this change (${operation} at ${path || 'whole CV'}). Do not propose this identical change again — ask what they'd prefer or move on.`;
             }
 
-            case 'accept_partial_update': {
-                const proposal = this.#proposalMap.get(toolCall.args.proposalId);
-                if (!proposal) return `Proposal ${toolCall.args.proposalId} not found. Available: ${[...this.#proposalMap.keys()].join(', ') || 'none'}`;
-                this.#pendingChanges.push(proposal);
-                this.#proposalMap.delete(toolCall.args.proposalId);
-                return `Accepted proposal ${toolCall.args.proposalId}.`;
-            }
-
-            case 'generate_style_update': {
-                const proposalId = crypto.randomUUID();
-                const currentCss = this.#editorContext?.css || '';
-                const instructions = toolCall.args.instructions;
-
-                const systemPrompt = `${DATE_CONTEXT}\n\n${INNER_STYLE_UPDATE_PROMPT}\n\n[Current CSS]\n\`\`\`css\n${currentCss}\n\`\`\``;
-                const chatHistorySlice = this.#currentChatHistory || [];
-                const userPrompt = chatHistorySlice.map(m =>
-                    `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-                ).join('\n') + `\n\nInstructions: ${instructions}`;
-
-                const structured = this.#routerModel.withStructuredOutput(AiStyleUpdateSchema, { includeRaw: true });
-                const msgs = [['system', systemPrompt], ['human', userPrompt]];
-
-                const [response, err] = await attempt(
-                    withTimeout(() => structured.invoke(msgs, { signal }), { timeout: LLM_TIMEOUT })
-                );
-
-                if (err) return `Style generation failed: ${err.message}. Try again with different instructions.`;
-
-                const data = response?.parsed ?? response?.raw?.tool_calls?.[0]?.args;
-                if (!data) return 'Style generation returned empty result. Try again with more specific instructions.';
-
-                const [parsed, parseErr] = attemptSync(() => AiStyleUpdateSchema.parse(data));
-                if (parseErr) return `Style generation produced invalid data: ${parseErr.message}. Try again.`;
-
-                this.#proposalMap.set(proposalId, { id: proposalId, type: 'style', ...parsed });
-
-                return `Proposal ${proposalId}: ${parsed.summary}`;
-            }
-
-            case 'accept_style_update': {
-                const proposal = this.#proposalMap.get(toolCall.args.proposalId);
-                if (!proposal) return `Proposal ${toolCall.args.proposalId} not found. Available: ${[...this.#proposalMap.keys()].join(', ') || 'none'}`;
-                this.#pendingChanges.push(proposal);
-                this.#proposalMap.delete(toolCall.args.proposalId);
-                return `Accepted style proposal ${toolCall.args.proposalId}.`;
+            case 'edit_styles': {
+                // Args ARE the CSS (no inner model). Stash it; processMessage yields it as a
+                // css_update preview card after the stream. CSS is a full replacement, so a
+                // later edit_styles call this turn supersedes an earlier one.
+                this.#pendingStyle = { css: toolCall.args.css, summary: toolCall.args.summary || '' };
+                return 'Style update ready — shown to the user to apply. No accept step needed.';
             }
 
             case 'tavily_search': {
@@ -800,6 +728,35 @@ export class CvAgent {
     }
 
     /**
+     * Human-in-the-loop approval gate. Emits an approval request describing a single
+     * CV change and resolves with the user's decision (true=accept, false=reject).
+     * Rejects with AbortError if the run is stopped while waiting. Mirrors the
+     * ask_clarification bridge: the UI applies the change on accept and calls respond().
+     *
+     * @param {{summary: string, operation: string, path: string, data: *}} change
+     * @param {AbortSignal} [signal]
+     * @returns {Promise<{accepted: boolean, cvData: object|null}>} cvData is the applied CV on accept
+     */
+    #requestApproval(change, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal) {
+                signal.addEventListener('abort', () => {
+                    reject(new DOMException('Aborted', 'AbortError'));
+                }, { once: true });
+            }
+            emit('ai:approval-request', {
+                summary: change.summary,
+                operation: change.operation,
+                path: change.path,
+                data: change.data,
+                // The UI applies the change on accept and hands back the resulting CV so the
+                // agent can refresh its editor-context snapshot for the next edit this turn.
+                respond: (approved, cvData) => resolve({ accepted: !!approved, cvData: cvData ?? null }),
+            });
+        });
+    }
+
+    /**
      * Streams a response from the tool-enabled model, handling tool-calling
      * loops automatically. Yields tokens, tool status events, and returns
      * the accumulated text response.
@@ -812,7 +769,7 @@ export class CvAgent {
      * @yields {{type: 'token'|'tool_status', chunk: *}}
      */
     async *#streamWithTools({ systemPrompt, userMessage, chatHistory, attachments, model, signal }) {
-        const toolModel = model || this.#agentToolModel;
+        const toolModel = model || this.#toolModel;
         const { AIMessage, ToolMessage } = await loadMessageClasses();
 
         const userContent = formatUserContent(userMessage, attachments);
@@ -822,13 +779,22 @@ export class CvAgent {
             ['human', userContent],
         ];
 
+        let toolCallsMade = 0;
+
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            // Stop was requested (chat:abort). A tool's inner error is swallowed by
+            // attempt() below, so without this check an abort mid-tool would just start
+            // another round instead of ending the stream.
+            if (signal?.aborted) return;
+
             let fullText = '';
             const toolCallMap = new Map();
 
             const stream = await toolModel.stream(messages, { signal });
 
             for await (const chunk of stream) {
+                if (signal?.aborted) return;
+
                 // Stream text tokens
                 const text = typeof chunk.content === 'string'
                     ? chunk.content
@@ -873,6 +839,14 @@ export class CvAgent {
 
             // Execute each tool and add results
             for (const tc of parsedCalls) {
+                // Hard runaway backstop: a model can spam tool calls (esp. retrying
+                // generate_* without converging). Stop and tell the user rather than
+                // silently making dozens of API calls with nothing on screen.
+                if (++toolCallsMade > MAX_TOOL_CALLS) {
+                    yield { type: 'error', chunk: `Stopped after ${MAX_TOOL_CALLS} tool calls without finishing — the model kept trying without converging. This can happen with smaller models on complex edits; try a more capable model or a simpler request.` };
+                    return;
+                }
+
                 yield { type: 'tool_status', chunk: TOOL_STATUS_LABELS[tc.name] || tc.name };
                 yield { type: 'tool_start', chunk: { name: tc.name, args: tc.args } };
 
@@ -884,6 +858,8 @@ export class CvAgent {
                     content: err ? `Tool error: ${err.message}` : result,
                     tool_call_id: tc.id,
                 }));
+
+                if (signal?.aborted) return;
             }
         }
     }
@@ -912,241 +888,79 @@ export class CvAgent {
         const cleanupAbort = once('chat:abort', () => controller.abort());
 
         try {
-            // Step 1: Classify intent
-            const [intent, classifyErr] = await attempt(
-                () => this.#classifyIntent({ userMessage, chatHistory, attachments, signal })
-            );
+            // Single agent loop: one model, one tool set, one system prompt. The model
+            // decides what to do (chat / build / edit / style / research) and calls tools —
+            // no classifier, no per-intent handlers. Edits go through the approval code-gate
+            // and their tool args ARE the change, so there is no inner model to hand off to.
+            this.#generationAccumulator = { personal: null, summary: null, sections: [] };
+            this.#pendingStyle = null;
 
-            if (classifyErr) {
-                yield { type: 'error', chunk: `Something went wrong understanding your message. Please try again. (${classifyErr.message})` };
-                yield { type: 'done', chunk: null };
-                return;
+            const systemPrompt = this.#buildSystemPrompt(AGENT_SYSTEM_PROMPT);
+            const augmentedMessage = this.#augmentWithContext(userMessage, 'js');
+
+            let fullResponse = '';
+
+            for await (const event of this.#streamWithTools({
+                systemPrompt,
+                userMessage: augmentedMessage,
+                chatHistory,
+                attachments,
+                model: this.#toolModel,
+                signal,
+            })) {
+                // Generation tools (set_*) render as progress steps in the UI.
+                if (event.type === 'tool_start' && GEN_TOOL_NAMES[event.chunk.name]) {
+                    const stepId = event.chunk.name === 'add_section'
+                        ? `section-${event.chunk.args.id}` : event.chunk.name;
+                    const label = event.chunk.name === 'add_section'
+                        ? `Generating ${event.chunk.args.heading}...`
+                        : event.chunk.name === 'set_personal_info'
+                            ? 'Generating personal info...' : 'Writing summary...';
+                    yield { type: 'gen_step_start', chunk: { stepId, label } };
+                    continue;
+                }
+                if (event.type === 'tool_done' && GEN_TOOL_NAMES[event.chunk.name]) {
+                    const stepId = event.chunk.name === 'add_section'
+                        ? `section-${event.chunk.args.id}` : event.chunk.name;
+                    yield event.chunk.error
+                        ? { type: 'gen_step_error', chunk: { stepId, error: event.chunk.error } }
+                        : { type: 'gen_step_done', chunk: { stepId } };
+                    continue;
+                }
+                // Edit tools own their UI (approval modal / css card) — hide raw tool events.
+                if (event.type === 'tool_start' && EDIT_TOOL_NAMES[event.chunk.name]) continue;
+                if (event.type === 'tool_done' && EDIT_TOOL_NAMES[event.chunk.name]) continue;
+
+                if (event.type === 'token') fullResponse += event.chunk;
+                yield event;
             }
 
-            // Yield intent for UI consumption (e.g. title updates)
-            yield { type: 'intent', chunk: intent };
+            // A from-scratch build accumulates via set_* tools — assemble and offer it.
+            const acc = this.#generationAccumulator;
+            this.#generationAccumulator = null;
+            if (acc && (acc.personal || acc.sections.length > 0)) {
+                const assembled = {
+                    personal: acc.personal,
+                    summary: acc.summary || undefined,
+                    sections: acc.sections,
+                };
+                const [cvData, validationErr] = attemptSync(() => CVDataSchema.parse(assembled));
+                if (validationErr) {
+                    yield { type: 'error', chunk: `The generated CV data didn't pass validation. Please try again. (${validationErr.message})` };
+                } else {
+                    yield { type: 'cv_data', chunk: cvData };
+                }
+            }
 
-            // Step 2: Route to appropriate handler
-            switch (intent.intent) {
-                case 'chitchat':
-                    yield* this.#handleChitchat({ userMessage, chatHistory, attachments, signal });
-                    break;
-
-                case 'clarification':
-                    yield* this.#handleClarification({ userMessage, chatHistory, attachments, signal });
-                    break;
-
-                case 'full_generation':
-                    yield* this.#handleFullGeneration({ userMessage, chatHistory, attachments, signal });
-                    break;
-
-                case 'partial_update':
-                    yield* this.#handlePartialUpdate({ userMessage, chatHistory, attachments, intent, signal });
-                    break;
-
-                case 'style_update':
-                    yield* this.#handleStyleUpdate({ userMessage, chatHistory, attachments, signal });
-                    break;
-
-                default:
-                    yield { type: 'error', chunk: `Unknown intent: ${intent.intent}` };
+            // A style change is a full CSS replacement — offer the latest one to apply.
+            if (this.#pendingStyle) {
+                yield { type: 'css_update', chunk: { css: this.#pendingStyle.css, summary: this.#pendingStyle.summary } };
+                this.#pendingStyle = null;
             }
 
             yield { type: 'done', chunk: null };
         } finally {
             cleanupAbort();
-        }
-    }
-
-    /**
-     * Handles chitchat intent — streams response with tool access.
-     */
-    async *#handleChitchat({ userMessage, chatHistory, attachments, signal }) {
-        yield* this.#streamWithTools({
-            systemPrompt: this.#buildSystemPrompt(CHITCHAT_SYSTEM_PROMPT),
-            userMessage,
-            chatHistory,
-            attachments,
-            signal
-        });
-    }
-
-    /**
-     * Handles clarification intent — streams follow-up questions, merges info into context buffer.
-     */
-    async *#handleClarification({ userMessage, chatHistory, attachments, signal }) {
-        this.#mergeContextFromMessage(userMessage);
-        yield* this.#streamWithTools({
-            systemPrompt: this.#buildSystemPrompt(CLARIFICATION_SYSTEM_PROMPT),
-            userMessage,
-            chatHistory,
-            attachments,
-            signal
-        });
-    }
-
-    /**
-     * Handles full CV generation using a single agentic conversation.
-     * The model calls generation tools (set_personal_info, set_summary,
-     * add_section) to build the CV piece by piece via the accumulator.
-     */
-    async *#handleFullGeneration({ userMessage, chatHistory, attachments, signal }) {
-        this.#generationAccumulator = { personal: null, summary: null, sections: [] };
-
-        const contextPrompt = buildContextPrompt(this.#contextBuffer);
-        const basePrompt = contextPrompt
-            ? `${GENERATION_AGENT_PROMPT}\n\n${contextPrompt}`
-            : GENERATION_AGENT_PROMPT;
-        const systemPrompt = this.#buildSystemPrompt(basePrompt);
-
-        const augmentedMessage = this.#augmentWithContext(userMessage, 'js');
-
-        let fullResponse = '';
-
-        for await (const event of this.#streamWithTools({
-            systemPrompt,
-            userMessage: augmentedMessage,
-            chatHistory,
-            attachments,
-            model: this.#genToolModel,
-            signal
-        })) {
-            if (event.type === 'tool_start' && GEN_TOOL_NAMES[event.chunk.name]) {
-                const stepId = event.chunk.name === 'add_section'
-                    ? `section-${event.chunk.args.id}` : event.chunk.name;
-                const label = event.chunk.name === 'add_section'
-                    ? `Generating ${event.chunk.args.heading}...`
-                    : event.chunk.name === 'set_personal_info'
-                        ? 'Generating personal info...' : 'Writing summary...';
-                yield { type: 'gen_step_start', chunk: { stepId, label } };
-                continue;
-            }
-
-            if (event.type === 'tool_done' && GEN_TOOL_NAMES[event.chunk.name]) {
-                const stepId = event.chunk.name === 'add_section'
-                    ? `section-${event.chunk.args.id}` : event.chunk.name;
-                yield event.chunk.error
-                    ? { type: 'gen_step_error', chunk: { stepId, error: event.chunk.error } }
-                    : { type: 'gen_step_done', chunk: { stepId } };
-                continue;
-            }
-
-            if (event.type === 'token') fullResponse += event.chunk;
-            yield event;
-        }
-
-        // Assemble from accumulator
-        const acc = this.#generationAccumulator;
-        this.#generationAccumulator = null;
-
-        if (!acc.personal || acc.sections.length === 0) {
-            yield { type: 'error', chunk: 'CV generation was incomplete — some required information (personal info or sections) is missing. Try providing more details and asking again.' };
-            return;
-        }
-
-        const assembled = {
-            personal: acc.personal,
-            summary: acc.summary || undefined,
-            sections: acc.sections,
-        };
-
-        const [cvData, validationErr] = attemptSync(() => CVDataSchema.parse(assembled));
-        if (validationErr) {
-            yield { type: 'error', chunk: `The generated CV data didn't pass validation. Please try again. (${validationErr.message})` };
-            return;
-        }
-
-        yield { type: 'cv_data', chunk: cvData };
-        this.#contextBuffer = {};
-    }
-
-    /**
-     * Handles partial CV update via tool-based propose/accept cycle.
-     * Outer model streams with tools, calling generate/accept tools.
-     * Inner router model produces structured data via withStructuredOutput.
-     */
-    async *#handlePartialUpdate({ userMessage, chatHistory, attachments, intent, signal }) {
-        this.#proposalMap.clear();
-        this.#pendingChanges = [];
-
-        const contextHint = intent.targetSection
-            ? `\nThe user wants to update the "${intent.targetSection}" section.${intent.targetIndex >= 0 ? ` Specifically item at index ${intent.targetIndex}.` : ''}`
-            : '';
-
-        const systemPrompt = this.#buildSystemPrompt(`${PARTIAL_UPDATE_SYSTEM_PROMPT}${contextHint}`);
-        const augmentedMessage = this.#augmentWithContext(userMessage, 'js');
-
-        let fullResponse = '';
-
-        for await (const event of this.#streamWithTools({
-            systemPrompt,
-            userMessage: augmentedMessage,
-            chatHistory,
-            attachments,
-            model: this.#partialUpdateToolModel,
-            signal
-        })) {
-            // Suppress tool_start/tool_done for update tools (user sees status only)
-            if (event.type === 'tool_start' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
-            if (event.type === 'tool_done' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
-
-            if (event.type === 'token') fullResponse += event.chunk;
-            yield event;
-        }
-
-        // Yield accepted proposals
-        if (this.#pendingChanges.length === 0) {
-            yield { type: 'error', chunk: 'The AI was unable to make the requested changes. Try rephrasing your request or being more specific about what you want to change.' };
-            return;
-        }
-
-        for (const proposal of this.#pendingChanges) {
-            if (proposal.type === 'partial') {
-                for (const updateData of proposal.updates) {
-                    yield { type: 'cv_section', chunk: updateData };
-                }
-            }
-        }
-    }
-
-    /**
-     * Handles style/CSS update via tool-based propose/accept cycle.
-     * Outer model streams with tools, calling generate/accept tools.
-     * Inner router model produces structured CSS via withStructuredOutput.
-     */
-    async *#handleStyleUpdate({ userMessage, chatHistory, attachments, signal }) {
-        this.#proposalMap.clear();
-        this.#pendingChanges = [];
-
-        const systemPrompt = this.#buildSystemPrompt(STYLE_UPDATE_SYSTEM_PROMPT);
-        const augmentedMessage = this.#augmentWithContext(userMessage, 'css');
-
-        let fullResponse = '';
-
-        for await (const event of this.#streamWithTools({
-            systemPrompt,
-            userMessage: augmentedMessage,
-            chatHistory,
-            attachments,
-            model: this.#styleUpdateToolModel,
-            signal
-        })) {
-            if (event.type === 'tool_start' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
-            if (event.type === 'tool_done' && UPDATE_TOOL_NAMES[event.chunk.name]) continue;
-
-            if (event.type === 'token') fullResponse += event.chunk;
-            yield event;
-        }
-
-        if (this.#pendingChanges.length === 0) {
-            yield { type: 'error', chunk: 'The AI was unable to generate the style changes. Try rephrasing your request or being more specific about what you want to change.' };
-            return;
-        }
-
-        // Use the last accepted style proposal (CSS is full replacement)
-        const lastStyle = [...this.#pendingChanges].reverse().find(p => p.type === 'style');
-        if (lastStyle) {
-            yield { type: 'css_update', chunk: { css: lastStyle.css, summary: lastStyle.summary } };
         }
     }
 
@@ -1165,16 +979,6 @@ export class CvAgent {
     }
 
     /**
-     * Extracts key-value pairs from a user message and merges them into
-     * the context buffer for use during generation.
-     * @param {string} message
-     */
-    #mergeContextFromMessage(message) {
-        const key = `clarification_${Date.now()}`;
-        this.#contextBuffer[key] = message;
-    }
-
-    /**
      * Clears the accumulated context buffer.
      */
     clearContext() {
@@ -1190,7 +994,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.03.27.1');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.10');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
