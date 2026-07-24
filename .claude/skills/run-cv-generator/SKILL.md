@@ -69,6 +69,23 @@ Exit code is non-zero if any check fails.
     node .claude/skills/run-cv-generator/driver.mjs shot my-name
 
 
+### Public-doc screenshots
+
+
+Regenerate the images the README and public docs use. The hero — repo-root `screenshot.png`, referenced by `README.md` — is captured from a clean default render (no personal data, no API keys), so it stays accurate and reproducible. Candidate shots for the styles, AI-settings, and approval surfaces land in `tmp/run-shots/docs/`; adopt any into the docs by copying the file in.
+
+    node .claude/skills/run-cv-generator/driver.mjs screenshots
+
+    hero -> .../screenshot.png
+    candidates -> .../tmp/run-shots/docs/
+      .../screenshot.png
+      .../tmp/run-shots/docs/02-styles.png
+      .../tmp/run-shots/docs/03-ai-settings.png
+      .../tmp/run-shots/docs/04-ai-approval.png
+
+`screenshot.png` is the only committed output — the `docs/` candidates are staging (`tmp/` is gitignored). The approval shot renders the real `approvalDialog` template (no live LLM needed), so its diff styling is exactly what production loads. `docshots` is an alias for the same command.
+
+
 ### What printing looks like
 
 
@@ -208,7 +225,7 @@ There is no test suite. `driver.mjs smoke` is the only automated check that exis
 
 **`print.css` doesn't hide `.toasts`.** It hides `.editor-panel`, `.editor-pane`, `.divider`, `.action-menu-container` and `footer`, but a live toast sits on top of the CV and prints with it — I caught a "CV saved!" bubble baked into a capture after ⌘S. `capturePrint()` empties the toast container first so captures are deterministic; a user who hits ⌘S then ⌘P inside the dismiss window will still see it on paper.
 
-**Don't pass `margin` to `page.pdf()`.** `print.css` ends with `@page { margin: 0.75in }`, and a `margin` option silently overrides it — the capture would stop matching what ⌘P produces. The driver passes `preferCSSPageSize: true` and no margins.
+**Don't pass `margin` to `page.pdf()`.** `print.css` ends with `@page { margin: 0.4in }`, and a `margin` option silently overrides it — the capture would stop matching what ⌘P produces. The driver passes `preferCSSPageSize: true` and no margins.
 
 **An item longer than a page loses its heading on every continuation page.** `print.css` guards `.item .header` with `break-after: avoid` and the first/last `li`, but nothing carries context forward once a single role's bullet list overruns the sheet. On the default Jane Anderson CV this is mild — one stranded bullet opens page 2. On a real 15-year resume it's the dominant defect: the first role's 20-odd bullets fill all of page 2 with no job title, employer, or dates anywhere on the sheet. Reproduce with `print base-default`, or at full scale with `print --cvml`.
 

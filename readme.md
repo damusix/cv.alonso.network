@@ -98,8 +98,9 @@ Configure one or more LLM providers with your own API keys:
 - **Anthropic** (Claude) - default small: `claude-haiku-4-5`, large: `claude-opus-4-5`
 - **OpenAI** (GPT) - default small: `gpt-5-mini`, large: `gpt-5.2`
 - **Google** (Gemini) - default small: `gemini-3-flash-preview`, large: `gemini-3-pro-preview`
+- **Fireworks** (open models) - default small: `accounts/fireworks/models/llama-v3p1-8b-instruct`, large: `accounts/fireworks/models/kimi-k2-instruct-0905`
 
-Each provider uses two models: a **small model** (cheap, for routing and data generation) and a **response model** (capable, for reasoning and conversation). You can customize the model names in Settings.
+Each provider uses two models: a **response model** (capable — drives the whole conversation and every tool call) and a **small model** (cheap — handles background work like summarizing uploaded documents, describing images, and deduplicating learned facts). You can customize both model names in Settings.
 
 ### What It Can Do
 
@@ -212,7 +213,7 @@ Changes auto-save to localStorage (including drafts and cursor position per mode
 
 ### Print Optimization
 
-Print-optimized layout with proper page breaks, 0.75in margins, and clean styling.
+Print-optimized layout: the CV expands to fill the full printable area (no centered column), roles stay grouped with their headings across page breaks, the type is density-tuned for paper, and pages use 0.4in margins.
 
 ---
 
