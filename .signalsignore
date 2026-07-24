@@ -1,0 +1,17 @@
+# .signalsignore
+#
+# Augments .gitignore for the signals scan. Gitignored paths are
+# already excluded automatically. This file is for TRACKED paths
+# you want excluded from signals or flagged as generated.
+#
+# Two modes:
+#   plain glob  → fully excluded from scan (not in tree at all)
+#   + prefix    → appears in tree with [generated] flag (inferrer skips)
+#
+# One glob per line. Blank lines and # comments ignored.
+#
+# Examples:
+#   third_party/**     ← committed but excluded from signals
+#   fixtures/**        ← committed but excluded from signals
+#   +dist/**           ← in tree, flagged [generated]
+#   +*.pb.go           ← in tree, flagged [generated]

@@ -1,11 +1,11 @@
 // Keyboard Shortcuts
 
-import { toggleEditor, applyChanges, getEditorMode } from './editor.js?v=2026.03.27.1';
-import { toggleActionMenu } from './action-menu.js?v=2026.03.27.1';
-import { toggleFullscreen } from './ui-utils.js?v=2026.03.27.1';
-import { showHelpModal } from './modal.js?v=2026.03.27.1';
-import { getCurrentAiScreen } from './ai/ui.js?v=2026.03.27.1';
-import { emit, on } from './observable.js?v=2026.03.27.1';
+import { toggleEditor, applyChanges, getEditorMode } from './editor.js?v=2026.07.23.1';
+import { toggleActionMenu } from './action-menu.js?v=2026.07.23.1';
+import { toggleFullscreen } from './ui-utils.js?v=2026.07.23.1';
+import { showHelpModal } from './modal.js?v=2026.07.23.1';
+import { getCurrentAiScreen } from './ai/ui.js?v=2026.07.23.1';
+import { emit, on } from './observable.js?v=2026.07.23.1';
 
 let lastEscapeTime = 0;
 
@@ -111,7 +111,7 @@ export function initializeKeyboardShortcuts() {
         }
 
 
-        // Double Escape within 1 second to close editor (mobile only)
+        // Double Escape within KEYPRESS_INTERVAL to close editor (mobile only)
         if (e.key === 'Escape') {
             emit('escape');
             isMenuOpen && emit('menu:close');

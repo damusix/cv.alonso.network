@@ -1,11 +1,11 @@
 // Import/Export Functionality
 
-import { loadSavedData, saveCVData, saveEditorMode, loadSavedStyles, saveStyles } from './storage.js?v=2026.03.27.1';
-import { getDocumentTitle, renderCV } from './cv-renderer.js?v=2026.03.27.1';
-import { CVDataSchema } from './validation.js?v=2026.03.27.1';
-import { applyStyles } from './styles.js?v=2026.03.27.1';
-import { getEditorMode, getEditor } from './editor.js?v=2026.03.27.1';
-import { emit } from './observable.js?v=2026.03.27.1';
+import { loadSavedData, saveCVData, saveEditorMode, loadSavedStyles, saveStyles } from './storage.js?v=2026.07.23.1';
+import { getDocumentTitle, renderCV } from './cv-renderer.js?v=2026.07.23.1';
+import { CVDataSchema } from './validation.js?v=2026.07.23.1';
+import { applyStyles } from './styles.js?v=2026.07.23.1';
+import { getEditorMode, getEditor } from './editor.js?v=2026.07.23.1';
+import { emit } from './observable.js?v=2026.07.23.1';
 
 export function exportCV() {
     try {
@@ -102,13 +102,10 @@ export function importCV() {
 
                 // Update editor if open
                 const editor = getEditor();
-                if (editor) {
-                    if (getEditorMode() === 'css') {
-                        // If in CSS mode, just refresh when switching modes
-                    } else {
-                        // Update editor with imported JavaScript code
-                        editor.setValue(cvCode);
-                    }
+                // In CSS mode the editor holds styles, not CV code — the
+                // imported code lands on the next mode switch instead.
+                if (editor && getEditorMode() !== 'css') {
+                    editor.setValue(cvCode);
                 }
 
                 // Emit import event

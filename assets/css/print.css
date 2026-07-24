@@ -37,12 +37,28 @@
         break-after: avoid;
     }
 
-    main section {
+    main section .item .header {
+        break-inside: avoid;
+        break-after: avoid;
+    }
+
+    main section .item .content li {
         break-inside: avoid;
     }
 
-    main section .item {
+    /* Keep tags attached to the last bullet — don't strand them alone */
+    main section .item .tags {
+        break-before: avoid;
         break-inside: avoid;
+    }
+
+    /* Prevent a single orphaned bullet at the bottom or top of a page */
+    main section .item .content li:first-child {
+        break-before: avoid;
+    }
+
+    main section .item .content li:last-child {
+        break-after: avoid;
     }
 
     header .links a {
@@ -52,8 +68,73 @@
     footer {
         display: none;
     }
+
+    /* Print density.
+     *
+     * Everything in cv.css is sized in rem, so retuning the root font size and
+     * the spacing tokens rescales the whole document in two declarations. The
+     * screen values are built for scrolling; paper is a fixed budget. */
+
+    :root {
+        font-size: 10.5pt;
+
+        --spacing-sm: 0.3rem;
+        --spacing-md: 0.55rem;
+        --spacing-lg: 0.65rem;
+        --spacing-xl: 0.85rem;
+    }
+
+    body {
+        line-height: 1.35;
+    }
+
+    .cv-container header .info h1 {
+        font-size: 1.6rem;
+    }
+
+    .cv-container header .info .title {
+        font-size: 1rem;
+    }
+
+    /* Narrower link column so a long title stops wrapping onto a second line. */
+    .cv-container header .links a {
+        font-size: 0.8rem;
+    }
+
+    .summary {
+        line-height: 1.4;
+    }
+
+    main section h2 {
+        font-size: 1.05rem;
+    }
+
+    main section .item .header h3 {
+        font-size: 1rem;
+    }
+
+    main section .item .content ul {
+        margin-left: 0.95rem;
+    }
+
+    /* Bullets are the bulk of a resume — this is the single biggest saving. */
+    main section .item .content li,
+    main section .item .content p {
+        margin-bottom: 0.14rem;
+    }
+
+    /* Tight inside a role, but keep an obvious gap between roles: with bullets
+     * this close together, an under-separated item boundary reads as one job. */
+    main section .item {
+        margin-bottom: 0.8rem;
+    }
+
+    main section .item .tags .tag {
+        padding: 0.1rem 0.4rem;
+        font-size: 0.75rem;
+    }
 }
 
 @page {
-    margin: 0.75in;
+    margin: 0.5in;
 }

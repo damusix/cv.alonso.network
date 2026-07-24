@@ -1,7 +1,7 @@
 // Action Menu Controls
 
-import { toggleEditor } from './editor.js?v=2026.03.27.1';
-import { emit } from './observable.js?v=2026.03.27.1';
+import { toggleEditor } from './editor.js?v=2026.07.23.1';
+import { emit } from './observable.js?v=2026.07.23.1';
 
 export function toggleActionMenu() {
     const menu = document.getElementById('actionMenu');

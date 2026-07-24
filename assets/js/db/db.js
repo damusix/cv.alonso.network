@@ -1,7 +1,7 @@
 // Database Layer — Dexie wrapper for IndexedDB persistence
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { assert } from '../utils.js?v=2026.03.27.1';
+import { assert } from '../utils.js?v=2026.07.23.1';
 
 const Dexie = (await import('https://cdn.jsdelivr.net/npm/dexie@4.0.11/+esm')).default;
 

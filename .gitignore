@@ -3,3 +3,4 @@ node_modules/
 tmp
 .playwright-mcp
 docs/superpowers
+.claude/.atomic-index/
