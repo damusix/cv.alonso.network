@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.24.9';
-import { emit, on } from '../observable.js?v=2026.07.24.9';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.9';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.9';
-import { configureSearch } from './search.js?v=2026.07.24.9';
-import { renderCV } from '../cv-renderer.js?v=2026.07.24.9';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.9';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.9';
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.9';
+import { db } from '../db/db.js?v=2026.07.24.10';
+import { emit, on } from '../observable.js?v=2026.07.24.10';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.10';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.10';
+import { configureSearch } from './search.js?v=2026.07.24.10';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.10';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.10';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.10';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.10';
 import {
     settingsScreen,
     chatScreen,
@@ -26,7 +26,7 @@ import {
     approvalDialog,
     approvalRecord,
     PROVIDERS
-} from './templates.js?v=2026.07.24.9';
+} from './templates.js?v=2026.07.24.10';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -73,7 +73,10 @@ const renderStreamMarkdown = throttle(() => {
     lastRenderedLen = fullResponseRef.length;
     paintStreamedContent(tokenTarget, fullResponseRef, fullResponseRef.length <= STREAM_MARKDOWN_MAX);
     scrollMessagesToBottom();
-}, { delay: 500, throws: false });
+    // 150ms keeps a short leading phrase ("Let me check…") appearing promptly instead of
+    // sitting on a stale partial; the plain-text path above STREAM_MARKDOWN_MAX already
+    // caps the per-paint cost, so a shorter interval doesn't reintroduce the O(n²) freeze.
+}, { delay: 150, throws: false });
 
 function appendToken(el, fullResponse) {
     tokenTarget = el;
@@ -550,8 +553,11 @@ async function handleSendMessage() {
                         typing.querySelector('.ai-message-content').innerHTML =
                             `<em class="ai-tool-status">${chunk}...</em>`;
                     }
-                    // Also update status bar inside assistant bubble
                     ensureAssistantBubble(bubbleState, messagesEl);
+                    // Paint the text streamed this round in full before the tool runs — the
+                    // stream is done for this round, so otherwise the bubble sits frozen on a
+                    // throttled partial line while the tool executes.
+                    flushRemainingTokens();
                     updateBubbleStatus(bubbleState.assistantBubble, chunk);
                     scrollMessagesToBottom();
                     break;
@@ -1135,7 +1141,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.9');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.10');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1378,7 +1384,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.24.9');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.10');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();
