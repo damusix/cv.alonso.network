@@ -1,7 +1,7 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.5';
+import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.6';
 import {
     AiIntentSchema,
     AiPartialUpdatesSchema,
@@ -10,7 +10,7 @@ import {
     LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.5';
+} from './schemas.js?v=2026.07.24.6';
 import {
     ROUTER_SYSTEM_PROMPT,
     CHITCHAT_SYSTEM_PROMPT,
@@ -22,9 +22,9 @@ import {
     INNER_STYLE_UPDATE_PROMPT,
     DATE_CONTEXT,
     buildContextPrompt
-} from './prompts.js?v=2026.07.24.5';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.5';
-import { once, emit } from '../observable.js?v=2026.07.24.5';
+} from './prompts.js?v=2026.07.24.6';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.6';
+import { once, emit } from '../observable.js?v=2026.07.24.6';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -208,16 +208,9 @@ const GENERATION_TOOLS = [
 const PARTIAL_UPDATE_TOOLS = [
     {
         name: 'generate_partial_update',
-        description: 'Generate a CV partial update proposal. Provide clear instructions describing what to change. The tool will produce structured changes using the current CV data. Review the returned summary — if unsatisfied, call this tool again with corrective instructions. When satisfied, call accept_partial_update with the proposal ID.',
+        description: 'Make ONE CV change. Provide clear instructions describing what to change; the tool produces the structured change from the current CV data and shows it to the USER as a before/after for approval. Approved changes are applied immediately — there is NO separate accept step. The result tells you whether the user accepted or rejected. For several changes, call this once per change, one at a time.',
         schema: z.object({
-            instructions: z.string().describe('Detailed instructions for what CV changes to make. Include specifics: which sections, items, fields to modify. If retrying, explain what was wrong with the previous attempt and what to fix.'),
-        }),
-    },
-    {
-        name: 'accept_partial_update',
-        description: 'Accept a partial update proposal after reviewing it. Only call this when you are satisfied with the proposal summary.',
-        schema: z.object({
-            proposalId: z.string().describe('The proposal ID returned by generate_partial_update'),
+            instructions: z.string().describe('Detailed instructions for ONE CV change: which section, item, and field to modify, and the operation (set/insert/delete).'),
         }),
     },
 ];
@@ -666,7 +659,6 @@ export class CvAgent {
                 return `Section "${toolCall.args.heading}" added with ${toolCall.args.items.length} items.`;
 
             case 'generate_partial_update': {
-                const proposalId = crypto.randomUUID();
                 const cvData = this.#editorContext?.js || '';
                 const instructions = toolCall.args.instructions;
 
@@ -691,36 +683,32 @@ export class CvAgent {
                 const [parsed, parseErr] = attemptSync(() => AiPartialUpdatesSchema.parse(data));
                 if (parseErr) return `Generation produced invalid data: ${parseErr.message}. Try again.`;
 
-                this.#proposalMap.set(proposalId, { id: proposalId, type: 'partial', ...parsed });
-
-                const paths = parsed.updates.map(u => u.path).join(', ');
-                return `Proposal ${proposalId}: ${parsed.explanation}. ${parsed.updates.length} update(s) affecting: ${paths}.`;
-            }
-
-            case 'accept_partial_update': {
-                const proposal = this.#proposalMap.get(toolCall.args.proposalId);
-                if (!proposal) return `Proposal ${toolCall.args.proposalId} not found. Available: ${[...this.#proposalMap.keys()].join(', ') || 'none'}`;
-                this.#proposalMap.delete(toolCall.args.proposalId);
-
-                // Human-in-the-loop: each change is shown to the user (before/after) for
-                // approval BEFORE it is applied. Approved changes are applied live by the
-                // UI; rejected ones are dropped. This blocks the agent until the user acts.
+                // Human-in-the-loop: the proposed change goes STRAIGHT to the user for
+                // before/after approval — no separate accept step. Folding approval into
+                // generate removes the second tool call (and UUID hand-off) that weaker
+                // models fumble, which is what caused generate→generate→… loops. The human
+                // is the corrector now, so the model's old self-accept step is redundant.
                 const outcomes = [];
-                for (const update of proposal.updates) {
+                for (const update of parsed.updates) {
                     this.#partialUpdateReviewed = true;
-                    const [approved, err] = await attempt(() => this.#requestApproval({
-                        summary: proposal.explanation,
+                    const [approved, appErr] = await attempt(() => this.#requestApproval({
+                        summary: parsed.explanation,
                         operation: update.operation,
                         path: update.path,
                         data: update.data,
                     }, signal));
-                    if (err) throw err; // aborted — propagate so the stream stops
+                    if (appErr) throw appErr; // aborted — propagate so the stream stops
                     outcomes.push(approved
                         ? `APPLIED ${update.operation} at ${update.path}`
-                        : `user REJECTED ${update.operation} at ${update.path} — do not retry this identical change`);
+                        : `user REJECTED ${update.operation} at ${update.path} — do not propose this identical change again`);
                 }
-                return `User review complete: ${outcomes.join('; ')}. Approved changes are already applied to the CV — do not re-apply them.`;
+                return `Reviewed by user: ${outcomes.join('; ')}. Approved changes are already applied to the CV. Move on to the next change, or stop if all requested changes are done.`;
             }
+
+            // Retained as a no-op: generate_partial_update now applies changes directly via
+            // the approval dialog, but a model may still emit accept out of habit.
+            case 'accept_partial_update':
+                return 'Already handled — generate_partial_update applies approved changes immediately. No accept step is needed; move on to the next change.';
 
             case 'generate_style_update': {
                 const proposalId = crypto.randomUUID();
@@ -1299,7 +1287,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.5');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.6');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
