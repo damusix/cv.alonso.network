@@ -1,11 +1,11 @@
 // Keyboard Shortcuts
 
-import { toggleEditor, applyChanges, getEditorMode } from './editor.js?v=2026.07.24.6';
-import { toggleActionMenu } from './action-menu.js?v=2026.07.24.6';
-import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.6';
-import { showHelpModal } from './modal.js?v=2026.07.24.6';
-import { getCurrentAiScreen } from './ai/ui.js?v=2026.07.24.6';
-import { emit, on } from './observable.js?v=2026.07.24.6';
+import { toggleEditor, applyChanges, getEditorMode } from './editor.js?v=2026.07.24.7';
+import { toggleActionMenu } from './action-menu.js?v=2026.07.24.7';
+import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.7';
+import { showHelpModal } from './modal.js?v=2026.07.24.7';
+import { getCurrentAiScreen } from './ai/ui.js?v=2026.07.24.7';
+import { emit, on } from './observable.js?v=2026.07.24.7';
 
 let lastEscapeTime = 0;
 

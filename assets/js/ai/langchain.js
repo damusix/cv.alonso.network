@@ -1,7 +1,7 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.6';
+import { attempt, attemptSync, retry, withTimeout } from '../utils.js?v=2026.07.24.7';
 import {
     AiIntentSchema,
     AiPartialUpdatesSchema,
@@ -10,7 +10,7 @@ import {
     LinkSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.6';
+} from './schemas.js?v=2026.07.24.7';
 import {
     ROUTER_SYSTEM_PROMPT,
     CHITCHAT_SYSTEM_PROMPT,
@@ -22,9 +22,9 @@ import {
     INNER_STYLE_UPDATE_PROMPT,
     DATE_CONTEXT,
     buildContextPrompt
-} from './prompts.js?v=2026.07.24.6';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.6';
-import { once, emit } from '../observable.js?v=2026.07.24.6';
+} from './prompts.js?v=2026.07.24.7';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.7';
+import { once, emit } from '../observable.js?v=2026.07.24.7';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -1287,7 +1287,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.6');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.7');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`

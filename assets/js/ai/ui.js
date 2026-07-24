@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.24.6';
-import { emit, on } from '../observable.js?v=2026.07.24.6';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.6';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.6';
-import { configureSearch } from './search.js?v=2026.07.24.6';
-import { renderCV } from '../cv-renderer.js?v=2026.07.24.6';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.6';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.6';
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.6';
+import { db } from '../db/db.js?v=2026.07.24.7';
+import { emit, on } from '../observable.js?v=2026.07.24.7';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.7';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.7';
+import { configureSearch } from './search.js?v=2026.07.24.7';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.7';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.7';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.7';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.7';
 import {
     settingsScreen,
     chatScreen,
@@ -26,7 +26,7 @@ import {
     approvalDialog,
     approvalRecord,
     PROVIDERS
-} from './templates.js?v=2026.07.24.6';
+} from './templates.js?v=2026.07.24.7';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -1131,7 +1131,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.6');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.7');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1374,7 +1374,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.24.6');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.7');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();
