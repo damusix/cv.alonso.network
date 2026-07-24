@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "http-server ./ -c-1 -o"
+    "start": "http-server ./ -c-1 -o",
+    "bump": "node scripts/bump-version.mjs",
+    "check-version": "node scripts/bump-version.mjs --check"
   },
   "keywords": [],
   "author": "",
