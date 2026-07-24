@@ -55,7 +55,7 @@ First run takes ~9s while the CDN cache fills; after that it's ~3s. Actual outpu
     PASS  CVML export downloads  — .../tmp/run-shots/ada-lovelace-cv-2026-07-23.cvml
     PASS  print capture with custom CSS  — 1 page(s)
     PASS  fullscreen toggle sets class  — split-view-container fullscreen-cv
-    PASS  known bug: toggleFullscreen throws on editor:fullscreen listener
+    PASS  toggleFullscreen no longer throws (editor:fullscreen listener fixed)
     PASS  CV + styles survive reload  — Ada Lovelace / rgb(255, 0, 85)
 
     16/16 checks passed
@@ -196,7 +196,7 @@ There is no test suite. `driver.mjs smoke` is the only automated check that exis
 
 **`applyChanges()` never throws.** It catches everything and emits `editor:save:error`, which surfaces only as a toast. To find out whether an apply worked, read `.toasts aside` — success is `"CV saved!"`, failure is `"Validation failed: ..."`. The driver's `apply()` returns that array.
 
-**`window.toggleFullscreen()` throws — this is a live app bug, not a driver problem.** `editor.js:414` subscribes with `on('editor:fullscreen', ({ data }) => ...)`, but LogosDX `ObserverEngine` hands *exact-name* listeners the payload directly; only regex listeners (like `toast.js:88`'s `on(/error/, ({ event, data }) => ...)`) receive a `{ event, data }` envelope. So `data` is `undefined` and the handler dies with `Cannot read properties of undefined (reading 'isFullscreen')`. The class list is mutated before the emit, so the UI still toggles and a human never notices. `main.js:75`'s `on('ai:cv-applied', ({ data }) => ...)` has the identical shape. Wrap the call in try/catch and assert on `.split-view-container`'s class instead.
+**`window.toggleFullscreen()` used to throw — now fixed.** `editor.js`'s `on('editor:fullscreen', ...)` listener now takes the payload directly, because LogosDX `ObserverEngine` hands *exact-name* listeners the payload (not a `{ event, data }` envelope — only regex listeners like `toast.js:88`'s `on(/error/, ({ event, data }) => ...)` get that). Before the fix it destructured `({ data })`, so `data` was `undefined` and the handler died with `Cannot read properties of undefined (reading 'isFullscreen')` — though the class was mutated before the emit, so the UI still toggled and a human never noticed. Note `main.js:75`'s `on('ai:cv-applied', ({ data }) => ...)` has the *old* shape but works because that emitter nests its payload under `data`. The driver still wraps the call in try/catch defensively and asserts on `.split-view-container`'s class.
 
 **First visit pops the help modal over everything.** The driver seeds `localStorage['cv-first-visit'] = 'true'` via an init script before the page runs.
 

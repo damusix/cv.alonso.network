@@ -423,15 +423,15 @@ async function smoke() {
         for (const p of printedStyled.pages) console.log(`      ${p}`);
 
         // --- fullscreen toggle
-        // toggleFullscreen() throws after mutating the DOM: editor.js:414 listens with
-        // ({ data }) but LogosDX delivers the payload directly to exact-name listeners.
-        // Swallow the throw and assert on the class it already set.
+        // editor.js's editor:fullscreen listener now takes the payload directly (LogosDX
+        // delivers it that way to exact-name listeners), so toggleFullscreen() no longer
+        // throws. Assert both: it stays silent AND sets the class.
         const fsToggle = () => page.evaluate(() => { try { window.toggleFullscreen(); } catch (e) { return String(e.message); } });
         const fsErr = await fsToggle();
         const fs1 = await page.$eval('.split-view-container', (e) => e.className);
         await fsToggle();
         check('fullscreen toggle sets class', fs1.includes('fullscreen'), fs1);
-        check('known bug: toggleFullscreen throws on editor:fullscreen listener', !!fsErr, fsErr || 'no longer throws — update SKILL.md gotcha');
+        check('toggleFullscreen no longer throws (editor:fullscreen listener fixed)', !fsErr, fsErr || 'no error');
 
         // --- persistence across reload
         await open(page, '/index.html', { attempts: 3 });
