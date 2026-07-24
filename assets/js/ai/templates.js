@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.7';
-import { formatByteSize } from '../utils.js?v=2026.07.24.7';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.8';
+import { formatByteSize } from '../utils.js?v=2026.07.24.8';
 
 const PROVIDERS = [
     {
@@ -400,6 +400,11 @@ function renderDiffBody(operation, before, data) {
         return `<div class="ai-diff-unified">${unifiedDiff('', toDiffText(data))}</div>`;
     }
     if (typeof before === 'string' && typeof data === 'string') {
+        // Multi-line strings (e.g. CSS) read better as a unified line diff; a single
+        // paragraph (e.g. a summary) reads better as an inline word diff.
+        if (before.includes('\n') || data.includes('\n')) {
+            return `<div class="ai-diff-unified">${unifiedDiff(before, data)}</div>`;
+        }
         return `<div class="ai-diff-prose">${wordDiffInline(before, data)}</div>`;
     }
     return `<div class="ai-diff-unified">${unifiedDiff(toDiffText(before), toDiffText(data))}</div>`;

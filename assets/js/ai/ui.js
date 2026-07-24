@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.24.7';
-import { emit, on } from '../observable.js?v=2026.07.24.7';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.7';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.7';
-import { configureSearch } from './search.js?v=2026.07.24.7';
-import { renderCV } from '../cv-renderer.js?v=2026.07.24.7';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.7';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.7';
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.7';
+import { db } from '../db/db.js?v=2026.07.24.8';
+import { emit, on } from '../observable.js?v=2026.07.24.8';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.8';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.8';
+import { configureSearch } from './search.js?v=2026.07.24.8';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.8';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.8';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.8';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.8';
 import {
     settingsScreen,
     chatScreen,
@@ -26,7 +26,7 @@ import {
     approvalDialog,
     approvalRecord,
     PROVIDERS
-} from './templates.js?v=2026.07.24.7';
+} from './templates.js?v=2026.07.24.8';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -430,7 +430,6 @@ async function handleSendMessage() {
     // Process with agent
     const bubbleState = { assistantBubble: null, contentEl: null };
     let fullResponse = '';
-    let classifiedIntent = null;
 
     // Build chat history from IndexedDB (source of truth)
     // Augment messages that have linked documents with their summaries
@@ -508,13 +507,15 @@ async function handleSendMessage() {
         const decide = (accepted) => {
             if (settled) return;
             settled = true;
-            if (accepted) applyCvFromAI(data, path, operation);
+            // Apply on accept and hand the resulting CV back to the agent so its next edit
+            // this turn reads current data (fixes the stale-snapshot bug).
+            const applied = accepted ? applyCvFromAI(data, path, operation) : null;
             closeApprovalDialog?.();
             // Leave a compact record in the transcript so the review history is visible.
             ensureAssistantBubble(bubbleState, messagesEl);
             bubbleState.contentEl.insertAdjacentHTML('beforeend', approvalRecord({ operation, path, accepted }));
             scrollMessagesToBottom();
-            respond(accepted);
+            respond(accepted, applied);
         };
 
         overlay.querySelector('.ai-approval-accept')?.addEventListener('click', () => decide(true));
@@ -542,10 +543,6 @@ async function handleSendMessage() {
     const [, iterErr] = await attempt(async () => {
         for await (const { type, chunk } of stream) {
             switch (type) {
-                case 'intent': {
-                    classifiedIntent = chunk;
-                    break;
-                }
 
                 case 'tool_status': {
                     const typing = document.getElementById('aiTyping');
@@ -659,14 +656,17 @@ async function handleSendMessage() {
                         bubbleState.assistantBubble.dataset.messageId = savedAssistantMsg.id;
                     }
 
-                    // Update title if the router decided the topic is clear
-                    if (classifiedIntent?.shouldUpdateTitle && classifiedIntent?.suggestedTitle) {
-                        await attempt(() => db.setTitle(currentChatId, classifiedIntent.suggestedTitle));
-                        const select = getContainer()?.querySelector('.ai-chat-select');
-                        if (select) {
-                            const opt = select.querySelector(`option[value="${currentChatId}"]`);
-                            if (opt) opt.textContent = classifiedIntent.suggestedTitle;
-                        }
+                    // Title the chat from the first user message (deterministic — no extra
+                    // LLM call now that the intent classifier is gone). Only while the chat
+                    // is still the default 'New Chat', so later turns don't clobber it.
+                    const titleOpt = getContainer()?.querySelector(`.ai-chat-select option[value="${currentChatId}"]`);
+                    if (titleOpt && titleOpt.textContent.trim() === 'New Chat' && text?.trim()) {
+                        const d = new Date();
+                        const datePrefix = `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+                        const trimmed = text.trim().replace(/\s+/g, ' ');
+                        const title = `${datePrefix} - ${trimmed.slice(0, 40)}${trimmed.length > 40 ? '…' : ''}`;
+                        await attempt(() => db.setTitle(currentChatId, title));
+                        titleOpt.textContent = title;
                     }
                     break;
                 }
@@ -909,14 +909,18 @@ export function applyCvFromAI(cvData, path, operation = 'set') {
     saveCVData(code, finalData);
     renderCV(finalData);
     emit('ai:cv-applied', { data: { cvData: finalData } });
+    // Returned so the approval gate can hand the applied CV back to the agent, keeping its
+    // editor-context snapshot current for the next edit in the same turn.
+    return finalData;
 }
 
 // Current value at a dot-path in the saved CV — the "before" side of an approval diff.
 // reach() returns undefined for missing paths, which the card renders as "nothing here yet".
+// A falsy path means the whole CV (an edit that replaces everything), so return the root.
 function currentValueAtPath(path) {
-    if (!path) return undefined;
     const saved = loadSavedData();
     if (!saved.result) return undefined;
+    if (!path) return saved.result;
     return reach(saved.result, path);
 }
 
@@ -1131,7 +1135,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.7');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.8');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1374,7 +1378,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.24.7');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.8');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();
