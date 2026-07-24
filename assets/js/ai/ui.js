@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.24.4';
-import { emit, on } from '../observable.js?v=2026.07.24.4';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.4';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.4';
-import { configureSearch } from './search.js?v=2026.07.24.4';
-import { renderCV } from '../cv-renderer.js?v=2026.07.24.4';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.4';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.4';
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.4';
+import { db } from '../db/db.js?v=2026.07.24.5';
+import { emit, on } from '../observable.js?v=2026.07.24.5';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.5';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.5';
+import { configureSearch } from './search.js?v=2026.07.24.5';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.5';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.5';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.5';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.5';
 import {
     settingsScreen,
     chatScreen,
@@ -23,9 +23,10 @@ import {
     generationStepSkeleton,
     profileEditDialog,
     clarificationCard,
-    approvalCard,
+    approvalDialog,
+    approvalRecord,
     PROVIDERS
-} from './templates.js?v=2026.07.24.4';
+} from './templates.js?v=2026.07.24.5';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -34,8 +35,9 @@ let currentChatId = null;
 let currentScreen = 'settings';
 let pendingAttachments = [];
 let pendingClarificationRespond = null;
-// { respond, operation, path, data } while a per-change approval dialog is open, else null
-let pendingApprovalRespond = null;
+// Tears down the open approval modal (remove overlay + key listener) if one is showing.
+// Null when no approval dialog is open. Used so Stop / stream-end can dismiss it.
+let closeApprovalDialog = null;
 
 // ─── Throttled markdown-rendering token appender ─────────────────────────────
 
@@ -55,10 +57,10 @@ let lastRenderedLen = -1;
 
 export const getCurrentAiScreen = () => currentScreen;
 
-// Paint streamed content into `el`, preserving injected step/preview/approval cards
-// (a re-render mid-stream must not wipe the user's before/after approval history).
+// Paint streamed content into `el`, preserving injected step/preview cards and approval
+// records (a re-render mid-stream must not wipe the user's accept/reject history).
 function paintStreamedContent(el, text, allowMarkdown) {
-    const preserved = [...el.querySelectorAll('.ai-gen-step, .ai-cv-preview, .ai-approval')];
+    const preserved = [...el.querySelectorAll('.ai-gen-step, .ai-cv-preview, .ai-approval-record')];
     el.innerHTML = allowMarkdown
         ? renderMarkdown(text)
         : `<pre class="ai-stream-raw" style="white-space:pre-wrap;overflow-x:auto;margin:0">${escapeHtml(text)}</pre>`;
@@ -485,15 +487,39 @@ async function handleSendMessage() {
     });
 
     // Register per-change approval listener (human-in-the-loop). The agent blocks on
-    // this until the user accepts/rejects each proposed change.
+    // this until the user accepts/rejects. The dialog is a full-viewport modal mounted
+    // on document.body so it can use the whole screen for the before/after diff.
     const cleanupApproval = on('ai:approval-request', ({ summary, operation, path, data, respond }) => {
-        ensureAssistantBubble(bubbleState, messagesEl);
-        flushRemainingTokens();
         // An insert adds a new entry at that index, so there is no meaningful "before".
         const before = operation === 'insert' ? undefined : currentValueAtPath(path);
-        bubbleState.contentEl.insertAdjacentHTML('beforeend', approvalCard({ summary, operation, path, data, before }));
-        scrollMessagesToBottom();
-        pendingApprovalRespond = { respond, operation, path, data };
+
+        document.body.insertAdjacentHTML('beforeend', approvalDialog({ summary, operation, path, data, before }));
+        const overlay = document.body.lastElementChild;
+
+        const onKey = (e) => { if (e.key === 'Escape') decide(false); };
+        // Tear down the modal without deciding (used by Stop / stream-end).
+        closeApprovalDialog = () => {
+            overlay.remove();
+            document.removeEventListener('keydown', onKey);
+            closeApprovalDialog = null;
+        };
+
+        let settled = false;
+        const decide = (accepted) => {
+            if (settled) return;
+            settled = true;
+            if (accepted) applyCvFromAI(data, path, operation);
+            closeApprovalDialog?.();
+            // Leave a compact record in the transcript so the review history is visible.
+            ensureAssistantBubble(bubbleState, messagesEl);
+            bubbleState.contentEl.insertAdjacentHTML('beforeend', approvalRecord({ operation, path, accepted }));
+            scrollMessagesToBottom();
+            respond(accepted);
+        };
+
+        overlay.querySelector('.ai-approval-accept')?.addEventListener('click', () => decide(true));
+        overlay.querySelector('.ai-approval-reject')?.addEventListener('click', () => decide(false));
+        document.addEventListener('keydown', onKey);
     });
 
     const [stream, streamErr] = await attempt(() =>
@@ -506,7 +532,7 @@ async function handleSendMessage() {
         cleanupClarification();
         cleanupApproval();
         pendingClarificationRespond = null;
-        pendingApprovalRespond = null;
+        closeApprovalDialog?.();
 
         if (!isAbortError(streamErr)) showErrorInChat(formatApiError(streamErr));
 
@@ -653,11 +679,11 @@ async function handleSendMessage() {
     cleanupClarification();
     cleanupApproval();
     pendingClarificationRespond = null;
-    pendingApprovalRespond = null;
-    // Disable any unanswered clarification / approval cards
-    const openCards = messagesEl?.querySelectorAll('.ai-clarification:not(.ai-clarification-answered), .ai-approval:not(.ai-approval-answered)');
+    closeApprovalDialog?.();
+    // Disable any unanswered clarification cards
+    const openCards = messagesEl?.querySelectorAll('.ai-clarification:not(.ai-clarification-answered)');
     if (openCards) {
-        for (const card of openCards) card.classList.add('ai-clarification-answered', 'ai-approval-answered');
+        for (const card of openCards) card.classList.add('ai-clarification-answered');
     }
 
     if (iterErr && !isAbortError(iterErr)) {
@@ -1105,7 +1131,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.4');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.5');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1166,34 +1192,6 @@ function setupEventDelegation(container) {
                         await handleSendMessage();
                     }
                 }
-                break;
-            }
-
-            case 'approval-accept': {
-                const card = actionEl.closest('.ai-approval');
-                if (card) {
-                    card.classList.add('ai-approval-answered', 'ai-approval-accepted');
-                    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
-                }
-                const p = pendingApprovalRespond;
-                pendingApprovalRespond = null;
-                if (p) {
-                    // Apply the change live, then unblock the agent so it continues.
-                    applyCvFromAI(p.data, p.path, p.operation);
-                    p.respond(true);
-                }
-                break;
-            }
-
-            case 'approval-reject': {
-                const card = actionEl.closest('.ai-approval');
-                if (card) {
-                    card.classList.add('ai-approval-answered', 'ai-approval-rejected');
-                    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
-                }
-                const p = pendingApprovalRespond;
-                pendingApprovalRespond = null;
-                if (p) p.respond(false);
                 break;
             }
 
@@ -1376,7 +1374,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.24.4');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.5');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();

@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.4';
-import { formatByteSize } from '../utils.js?v=2026.07.24.4';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.5';
+import { formatByteSize } from '../utils.js?v=2026.07.24.5';
 
 const PROVIDERS = [
     {
@@ -308,39 +308,92 @@ export function applyAllButton() {
     </div>`;
 }
 
+const OP_LABEL = { delete: 'Remove', insert: 'Insert' };
+const opLabelFor = (operation) => OP_LABEL[operation] || 'Update';
+
+// Word-level diff of two strings. Returns { beforeHtml, afterHtml } with removed words
+// wrapped in <del> and added words in <ins>. Whitespace is kept as its own tokens so the
+// text reflows naturally. Falls back to plain escaped text if the inputs are large enough
+// that the O(n*m) LCS table would be wasteful.
+function wordDiff(beforeStr, afterStr) {
+    const tok = (s) => s.match(/\s+|\S+/g) || [];
+    const a = tok(beforeStr), b = tok(afterStr);
+    if (a.length * b.length > 250_000) {
+        return { beforeHtml: escapeHtml(beforeStr), afterHtml: escapeHtml(afterStr) };
+    }
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = m - 1; i >= 0; i--) {
+        for (let j = n - 1; j >= 0; j--) {
+            dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    const beforeParts = [], afterParts = [];
+    let i = 0, j = 0;
+    while (i < m && j < n) {
+        if (a[i] === b[j]) { beforeParts.push(escapeHtml(a[i])); afterParts.push(escapeHtml(b[j])); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { beforeParts.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
+        else { afterParts.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
+    }
+    while (i < m) { beforeParts.push(`<del>${escapeHtml(a[i])}</del>`); i++; }
+    while (j < n) { afterParts.push(`<ins>${escapeHtml(b[j])}</ins>`); j++; }
+    return { beforeHtml: beforeParts.join(''), afterHtml: afterParts.join('') };
+}
+
+function diffSides(operation, before, data) {
+    const fmt = (v) => v === undefined ? '(nothing here yet)' : (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+    if (operation === 'delete') {
+        return { beforeHtml: escapeHtml(fmt(before)), afterHtml: '<span class="ai-approval-removed">(removed)</span>' };
+    }
+    if (typeof before === 'string' && typeof data === 'string') return wordDiff(before, data);
+    return { beforeHtml: escapeHtml(fmt(before)), afterHtml: escapeHtml(fmt(data)) };
+}
+
 /**
- * Human-in-the-loop approval card: shows a single proposed change as before/after and
- * asks the user to accept or reject before the agent continues.
+ * Human-in-the-loop approval modal: a full-viewport dialog showing a single proposed
+ * change as a before/after word diff, with Accept / Reject. Declares its own theme
+ * tokens because it is mounted on document.body (outside .editor-panel's token scope).
  * @param {{summary: string, operation: string, path: string, data: *, before: *}} change
  */
-export function approvalCard({ summary, operation, path, data, before }) {
-    const opLabel = operation === 'delete' ? 'Remove' : operation === 'insert' ? 'Insert' : 'Update';
-    const trunc = (s) => s.length > 1400 ? s.slice(0, 1400) + '\n…' : s;
-    const fmt = (v) => v === undefined ? '(nothing here yet)' : (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
-    const beforeStr = trunc(fmt(before));
-    const afterStr = operation === 'delete' ? '(removed)' : trunc(fmt(data));
+export function approvalDialog({ summary, operation, path, data, before }) {
+    const opLabel = opLabelFor(operation);
+    const { beforeHtml, afterHtml } = diffSides(operation, before, data);
 
     return `
-    <div class="ai-approval">
-        <div class="ai-approval-header">
-            <i class="fa-solid fa-code-compare"></i>
-            <span>${escapeHtml(opLabel)} <code>${escapeHtml(path || '(whole CV)')}</code></span>
-        </div>
-        ${summary ? `<div class="ai-approval-summary">${escapeHtml(summary)}</div>` : ''}
-        <div class="ai-approval-diff">
-            <div class="ai-approval-col ai-approval-before">
-                <div class="ai-approval-col-label">Before</div>
-                <pre><code>${escapeHtml(beforeStr)}</code></pre>
+    <div class="ai-approval-overlay">
+        <div class="ai-approval-modal" role="dialog" aria-modal="true">
+            <div class="ai-approval-modal-header">
+                <span class="ai-approval-title">
+                    <i class="fa-solid fa-code-compare"></i>
+                    ${escapeHtml(opLabel)} <code>${escapeHtml(path || '(whole CV)')}</code>
+                </span>
+                <span class="ai-approval-hint">Review before applying</span>
             </div>
-            <div class="ai-approval-col ai-approval-after">
-                <div class="ai-approval-col-label">After</div>
-                <pre><code>${escapeHtml(afterStr)}</code></pre>
+            ${summary ? `<div class="ai-approval-summary">${escapeHtml(summary)}</div>` : ''}
+            <div class="ai-approval-diff">
+                <div class="ai-approval-col ai-approval-before">
+                    <div class="ai-approval-col-label">Before</div>
+                    <pre><code>${beforeHtml}</code></pre>
+                </div>
+                <div class="ai-approval-col ai-approval-after">
+                    <div class="ai-approval-col-label">After</div>
+                    <pre><code>${afterHtml}</code></pre>
+                </div>
+            </div>
+            <div class="ai-approval-actions">
+                <button class="ai-btn-ghost ai-approval-reject"><i class="fa-solid fa-xmark"></i> Reject</button>
+                <button class="ai-btn-primary ai-approval-accept"><i class="fa-solid fa-check"></i> Accept &amp; apply</button>
             </div>
         </div>
-        <div class="ai-approval-actions">
-            <button class="ai-btn-primary" data-action="approval-accept"><i class="fa-solid fa-check"></i> Accept</button>
-            <button class="ai-btn-danger" data-action="approval-reject"><i class="fa-solid fa-xmark"></i> Reject</button>
-        </div>
+    </div>`;
+}
+
+// Compact inline record left in the transcript after a change is accepted/rejected.
+export function approvalRecord({ operation, path, accepted }) {
+    return `
+    <div class="ai-approval-record ai-approval-record-${accepted ? 'accepted' : 'rejected'}">
+        <i class="fa-solid fa-${accepted ? 'check' : 'xmark'}"></i>
+        <span>${accepted ? 'Accepted' : 'Rejected'} — ${escapeHtml(opLabelFor(operation))} <code>${escapeHtml(path || '(whole CV)')}</code></span>
     </div>`;
 }
 
