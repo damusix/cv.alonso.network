@@ -4,7 +4,10 @@
     .editor-panel,
     .editor-pane,
     .divider,
-    .action-menu-container {
+    .action-menu-container,
+    /* A toast (e.g. "CV saved!" after ⌘S) sits above the CV and otherwise bakes
+     * into the print output. */
+    .toasts {
         display: none !important;
     }
 
@@ -127,6 +130,11 @@
      * this close together, an under-separated item boundary reads as one job. */
     main section .item {
         margin-bottom: 0.8rem;
+        /* Keep a whole role on one page so its heading (title/employer/dates) never
+         * gets stranded on the previous page while its bullets flow onto the next.
+         * A single role taller than a full page will still split (CSS can't repeat
+         * an arbitrary heading across pages) — but that case is rare. */
+        break-inside: avoid;
     }
 
     main section .item .tags .tag {
