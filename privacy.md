@@ -73,7 +73,7 @@ Read more: [Google Analytics Privacy Policy](https://policies.google.com/privacy
 
 The AI chat assistant connects **directly from your browser** to the LLM provider you configure. Alonso Network does not proxy, intercept, or store any of this communication. When you use the AI chat:
 
-- Prompts and responses go directly between your browser and the provider (Anthropic, OpenAI, or Google Gemini)
+- Prompts and responses go directly between your browser and the provider (Anthropic, OpenAI, Google Gemini, or Fireworks)
 - Your API keys are stored locally in your browser and sent only to the respective provider
 - Alonso Network never sees your prompts, responses, or API keys
 
@@ -82,18 +82,19 @@ Provider privacy policies:
 - [Anthropic (Claude)](https://www.anthropic.com/privacy)
 - [OpenAI](https://openai.com/privacy)
 - [Google (Gemini)](https://policies.google.com/privacy)
+- [Fireworks](https://fireworks.ai/privacy-policy)
 
-### Brave Search
+### Web Search
 
 
-Web searches made through the AI assistant use the Brave Search API via [corsproxy.io](https://corsproxy.io), a public CORS proxy service. Search queries pass through corsproxy.io to reach Brave — Alonso Network does not log or store search queries or results.
+Web searches made through the AI assistant use the **Brave Search** and **Tavily** APIs (whichever you configure a key for). Requests are made through [Puter.js](https://puter.com) to bypass browser CORS restrictions, so they transit Puter's infrastructure on the way to the search provider. Alonso Network does not log or store your search queries or results.
 
 Read more: [Brave Search Privacy Policy](https://search.brave.com/help/privacy-policy)
 
 ### Website Fetching
 
 
-When the AI assistant fetches a website (e.g., a job posting URL you provide), it uses the browser's native Fetch API. The request goes directly from your browser to the target website. Alonso Network is not involved in these requests.
+When the AI assistant fetches a website (e.g., a job posting URL you provide), the request is made through [Puter.js](https://puter.com) so it can bypass browser CORS restrictions. This means the request transits Puter's infrastructure rather than going straight from your browser to the target site. Alonso Network is not involved in these requests and never sees them.
 
 ---
 
@@ -124,4 +125,4 @@ For questions or concerns about privacy, please open an issue on our [GitHub rep
 
 ---
 
-**Last updated:** 2026-02-01
+**Last updated:** 2026-07-24
