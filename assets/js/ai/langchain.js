@@ -42,6 +42,19 @@ const CDN = {
 // `accounts/fireworks/models/<name>` (set in Settings).
 const FIREWORKS_BASE_URL = 'https://api.fireworks.ai/inference/v1';
 
+// The OpenAI SDK injects x-stainless-* telemetry headers on every request. Fireworks'
+// CORS policy allows a FIXED header set (Authorization/Content-Type/Accept/Fireworks-
+// Playground) and does not include x-stainless-*, so the browser preflight is rejected
+// and the call fails with a CORS error. Strip those headers before the request so the
+// preflight only asks for headers Fireworks permits. (Telemetry-only — safe to drop.)
+function stripStainlessFetch(url, init = {}) {
+    const headers = new Headers(init.headers || undefined);
+    for (const key of [...headers.keys()]) {
+        if (key.toLowerCase().startsWith('x-stainless')) headers.delete(key);
+    }
+    return fetch(url, { ...init, headers });
+}
+
 // ─── Provider Factories ──────────────────────────────────────────────────────
 
 const PROVIDER_FACTORY = {
@@ -498,13 +511,15 @@ export class CvAgent {
             'google-genai': {
                 apiKey,
             },
-            // OpenAI-compatible: ChatOpenAI + Fireworks base URL. Fireworks sends
-            // permissive CORS headers, so the browser call succeeds directly.
+            // OpenAI-compatible: ChatOpenAI + Fireworks base URL. The custom fetch
+            // strips x-stainless-* headers the OpenAI SDK adds, which Fireworks' CORS
+            // policy rejects (see stripStainlessFetch).
             fireworks: {
                 openAIApiKey: apiKey,
                 configuration: {
                     baseURL: FIREWORKS_BASE_URL,
                     dangerouslyAllowBrowser: true,
+                    fetch: stripStainlessFetch,
                 },
             },
         };
