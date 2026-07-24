@@ -1,19 +1,19 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.9';
+import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.10';
 import {
     AiPartialUpdateSchema,
     CVDataSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.9';
+} from './schemas.js?v=2026.07.24.10';
 import {
     AGENT_SYSTEM_PROMPT,
     DATE_CONTEXT,
-} from './prompts.js?v=2026.07.24.9';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.9';
-import { once, emit } from '../observable.js?v=2026.07.24.9';
+} from './prompts.js?v=2026.07.24.10';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.10';
+import { once, emit } from '../observable.js?v=2026.07.24.10';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -994,7 +994,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.9');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.10');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`

@@ -1,14 +1,14 @@
 // AI Schemas — Zod schema for the edit_cv tool patch, plus CV validation re-exports
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { PersonalSchema, SectionItemSchema, SectionSchema } from '../validation.js?v=2026.07.24.9';
+import { PersonalSchema, SectionItemSchema, SectionSchema } from '../validation.js?v=2026.07.24.10';
 export {
     CVDataSchema,
     PersonalSchema,
     SectionItemSchema,
     SectionSchema,
     LinkSchema
-} from '../validation.js?v=2026.07.24.9';
+} from '../validation.js?v=2026.07.24.10';
 
 export const AiPartialUpdateSchema = z.object({
     operation: z.enum(['set', 'insert', 'delete']).default('set').describe("'set' replaces the value at the path. 'insert' splices a new element into the array at the given index. 'delete' removes the element at the path from its parent array (e.g. path 'sections.2' with 'delete' removes the third section). Use 'insert' when adding, 'set' when editing, 'delete' when removing."),
