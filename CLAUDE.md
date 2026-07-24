@@ -70,13 +70,25 @@ All local JS module imports use a `?v=VERSION` query string for cache busting. T
 
 The version format is `YYYY.MM.DD.N` (date + sequential number for same-day changes).
 
-To bump all versions at once:
+Bump every reference in one pass with the version manager (pure Node, no deps):
 
 ```
-sed -i '' "s/?v=OLD_VERSION/?v=NEW_VERSION/g" assets/js/**/*.js assets/js/*.js index.html
+node scripts/bump-version.mjs                 # bump to today's date, next sequence
+node scripts/bump-version.mjs 2026.07.24.3    # set an explicit version
+node scripts/bump-version.mjs --check         # verify all ?v= match version.js; exit 1 on drift
 ```
 
-Then update `assets/js/version.js` manually.
+It rewrites `version.js`, the `index.html` script tag, and every `?v=` import under `assets/js/**` together. Prefer it over editing by hand, and run `--check` before you ship to catch drift. (Manual fallback: `sed -i '' "s/?v=OLD/?v=NEW/g" assets/js/**/*.js assets/js/*.js index.html`, then edit `version.js`.)
+
+## Screenshots
+
+The README hero (`screenshot.png`) and other doc images are generated, not hand-captured. Regenerate them with the run-cv-generator skill's driver:
+
+```
+node .claude/skills/run-cv-generator/driver.mjs screenshots
+```
+
+It writes the committed hero from a clean default render and stages candidate shots (styles, AI settings, approval dialog) under `tmp/run-shots/docs/`. Don't screenshot your own running instance for the hero — that bakes real profile data and API-key fields into a public image.
 
 <atomic-signals>
 
