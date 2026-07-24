@@ -1,19 +1,19 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
 import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.8';
+import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.9';
 import {
     AiPartialUpdateSchema,
     CVDataSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.8';
+} from './schemas.js?v=2026.07.24.9';
 import {
     AGENT_SYSTEM_PROMPT,
     DATE_CONTEXT,
-} from './prompts.js?v=2026.07.24.8';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.8';
-import { once, emit } from '../observable.js?v=2026.07.24.8';
+} from './prompts.js?v=2026.07.24.9';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.9';
+import { once, emit } from '../observable.js?v=2026.07.24.9';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
@@ -584,10 +584,18 @@ export class CvAgent {
 
             case 'edit_cv': {
                 // The model already produced the change (operation/path/data) — no inner
-                // model. Send it straight to the user for before/after approval. On accept
+                // model. Validate it against the schema first: the provider does NOT enforce
+                // the tool-arg shape when grammar/constrained generation is disabled (e.g.
+                // Fireworks), so a weak model could otherwise push malformed data straight
+                // into applyCvFromAI. On failure, tell the model to fix and retry.
+                const [change, parseErr] = attemptSync(() => EditCvSchema.parse(toolCall.args));
+                if (parseErr) {
+                    return `The change didn't match the required shape: ${parseErr.message}. Fix the operation/path/data and call edit_cv again.`;
+                }
+                const { operation, path, data, summary } = change;
+                // Send the validated change to the user for before/after approval. On accept
                 // the UI applies it and hands back the new CV so a follow-up edit this turn
                 // reads current data (no stale-snapshot bug). No accept tool to loop on.
-                const { operation, path, data, summary } = toolCall.args;
                 const [decision, appErr] = await attempt(() => this.#requestApproval({
                     summary, operation, path, data,
                 }, signal));
@@ -986,7 +994,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.8');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.9');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
