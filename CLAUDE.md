@@ -34,7 +34,6 @@ An AI chat assistant (third editor tab) can generate and modify CV data and CSS 
 
 Each of these cost real debugging time. They are not obvious from the LangChain docs.
 
-- `withStructuredOutput` can return `null` even when the API response contains valid data. Always use `{ includeRaw: true }` and fall back to `response.raw.tool_calls[0].args` when `response.parsed` is null.
 - Anthropic adapter defaults `topP`/`topK` to `-1`, which the API rejects. Must explicitly set them to `undefined` after construction.
 - OpenAI reasoning models (o1, o3) only accept `temperature: 1`. OpenAI models reject `max_tokens` — must use `modelKwargs: { max_completion_tokens }` instead.
 - Anthropic requires strictly alternating user/assistant messages. `toLangChainMessages` merges consecutive same-role messages with newlines.
