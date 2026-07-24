@@ -8,19 +8,18 @@ function getObserver() {
     if (!observer && window.LogosDx?.Observer) {
 
         observer = new ObserverEngine({
-            spy: ({ fn, event, data }) => {
+            spy: ({ fn, event }) => {
 
                 if (fn !== 'emit') return;
+                if (!window.gtag) return;
 
-                // Send to GA for event tracking
-
-                if (window.gtag) {
-                    gtag('event', event, {
-                        event_category: 'cv-generator',
-                        event_label: JSON.stringify(event),
-                        event_data: JSON.stringify(data)
-                    });
-                }
+                // Track only THAT an event happened — never its payload. Event data here
+                // can be the entire CV (personal info included) or a large AI generation;
+                // sending it to GA both leaks user data and blows past GA4's request-size
+                // limit, so the collect endpoint rejects it with 413. GA4 also requires
+                // event names to be [A-Za-z0-9_] and <=40 chars, so ':'/'-' are normalized.
+                const name = String(event).replace(/[^a-z0-9_]/gi, '_').slice(0, 40);
+                gtag('event', name, { event_category: 'cv-generator' });
             }
         });
     }
