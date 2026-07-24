@@ -45,11 +45,12 @@ Analyze the user's message and classify it into one of these intents:
 - "chitchat": General conversation, questions about the app, greetings, resume tips, or anything that does NOT ask to produce CV data.
   Only use this when the user is NOT asking you to create, generate, write, or modify CV content.
 - "clarification": The user wants to create or update CV content but hasn't provided enough detail yet (missing job title, dates, descriptions, etc.)
-- "full_generation": The user wants you to generate, create, write, or build a complete CV or resume.
-  ANY request that asks you to produce a CV/resume — even if details are sparse — is full_generation, NOT chitchat.
-  Examples: "generate my resume", "create a CV for me", "build my resume", "make me a CV", "write my resume based on this".
+- "full_generation": The user wants you to build a brand-new CV from scratch, or there is no existing CV yet. Use this ONLY when creating a complete CV where little or none exists.
+  Examples: "generate my resume", "create a CV for me", "build my resume from this info", "write my resume based on this job posting".
   When prior context exists in the conversation (e.g. fetched job posting, previous messages with user details), use full_generation — do NOT ask for clarification if you have enough to work with.
-- "partial_update": The user wants to modify a specific section or item in their existing CV (e.g., "update my experience", "add a new skill", "change my job title")
+- "partial_update": The user wants to modify an EXISTING CV — editing, trimming, shortening, consolidating, reordering, rewording, adding, or removing content. This is the correct intent even when the change touches several sections; the changes are applied incrementally, one at a time.
+  Examples: "update my experience", "add a new skill", "change my job title", "trim my summary and consolidate my skills", "shorten this resume to two pages", "cut my early-career roles".
+  If a CV already exists and the user wants it improved rather than rebuilt from nothing, use partial_update — NOT full_generation. Reserve full_generation for the empty/from-scratch case.
 - "style_update": The user wants to change the visual styling/appearance of their CV (e.g., "make the headings blue", "change the font", "add more spacing", "make it look more modern", "change the layout"). Anything about colors, fonts, spacing, borders, layout, or visual design is a style_update.
 
 For partial_update, identify which section is being targeted (e.g., "experience", "education", "skills") and the item index if specified.
@@ -91,6 +92,10 @@ Guidelines:
 - If the user has existing CV data, preserve their structure and improve content
 - Include all relevant sections — typical CVs have 3-6 sections
 
+set_personal_info is REQUIRED — always call it (step 3), even when the user already has a CV: copy their existing contact details forward. The CV cannot be assembled without personal info AND at least one section, and skipping either discards the ENTIRE generation.
+
+This intent rebuilds the whole CV in one shot. If the user only wants to tweak, trim, or improve an existing CV, that is a partial update — make focused changes there instead of regenerating everything here.
+
 You MUST call the generation tools (set_personal_info, set_summary, add_section) to produce the CV. Do not output raw JSON.` + CV_WRITING_GUIDE;
 
 export const PARTIAL_UPDATE_SYSTEM_PROMPT = `You are a professional CV/resume writer for a CV generator application.
@@ -123,6 +128,10 @@ Be specific in your instructions to the generator:
 - Specify the exact path including index (e.g., "insert at sections.0.items.0 to prepend")
 - If retrying, explain the problem: "The previous proposal was missing the FlexShopper entry. Include ALL entries: RBI, FlexShopper, Telos Advisory..."
 - Reference specific facts from the user's resume or conversation
+
+## One change at a time
+
+Make ONE focused change per proposal. If the user asks for several things (e.g. "trim the summary AND consolidate skills AND cut old roles"), handle them SEQUENTIALLY: generate_partial_update → accept_partial_update for the first change, then repeat for the next, and so on. Do NOT try to rewrite the whole CV in a single proposal — small, targeted updates are more reliable, easier to verify, and far less likely to destroy existing data. Announce briefly which change you're making before each one.
 
 ## Rules
 
