@@ -1,13 +1,13 @@
 // Editor Management
 
-import { cvData, defaultMessage, STORAGE_CODE_KEY } from './config.js?v=2026.07.24.7';
-import { CVDataSchema } from './validation.js?v=2026.07.24.7';
-import { loadSavedData, saveCVData, saveEditorMode, clearSavedData, saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js?v=2026.07.24.7';
-import { renderCV } from './cv-renderer.js?v=2026.07.24.7';
-import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.7';
-import { applyStyles, getCurrentStyles, resetStyles } from './styles.js?v=2026.07.24.7';
-import { toggleEditorPane, isEditorPaneOpen } from './split-pane.js?v=2026.07.24.7';
-import { emit, on } from './observable.js?v=2026.07.24.7';
+import { cvData, defaultMessage, STORAGE_CODE_KEY } from './config.js?v=2026.07.24.8';
+import { CVDataSchema } from './validation.js?v=2026.07.24.8';
+import { loadSavedData, saveCVData, saveEditorMode, clearSavedData, saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js?v=2026.07.24.8';
+import { renderCV } from './cv-renderer.js?v=2026.07.24.8';
+import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.8';
+import { applyStyles, getCurrentStyles, resetStyles } from './styles.js?v=2026.07.24.8';
+import { toggleEditorPane, isEditorPaneOpen } from './split-pane.js?v=2026.07.24.8';
+import { emit, on } from './observable.js?v=2026.07.24.8';
 
 let editor;
 let editorMode = 'javascript';
