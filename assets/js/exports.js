@@ -1,11 +1,11 @@
 // Import/Export Functionality
 
-import { loadSavedData, saveCVData, saveEditorMode, loadSavedStyles, saveStyles } from './storage.js?v=2026.07.24.4';
-import { getDocumentTitle, renderCV } from './cv-renderer.js?v=2026.07.24.4';
-import { CVDataSchema } from './validation.js?v=2026.07.24.4';
-import { applyStyles } from './styles.js?v=2026.07.24.4';
-import { getEditorMode, getEditor } from './editor.js?v=2026.07.24.4';
-import { emit } from './observable.js?v=2026.07.24.4';
+import { loadSavedData, saveCVData, saveEditorMode, loadSavedStyles, saveStyles } from './storage.js?v=2026.07.24.5';
+import { getDocumentTitle, renderCV } from './cv-renderer.js?v=2026.07.24.5';
+import { CVDataSchema } from './validation.js?v=2026.07.24.5';
+import { applyStyles } from './styles.js?v=2026.07.24.5';
+import { getEditorMode, getEditor } from './editor.js?v=2026.07.24.5';
+import { emit } from './observable.js?v=2026.07.24.5';
 
 export function exportCV() {
     try {
