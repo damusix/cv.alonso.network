@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.23.1';
-import { emit, on } from '../observable.js?v=2026.07.23.1';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.23.1';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.23.1';
-import { configureSearch } from './search.js?v=2026.07.23.1';
-import { renderCV } from '../cv-renderer.js?v=2026.07.23.1';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.23.1';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.23.1';
-import { renderMarkdown } from '../markdown.js?v=2026.07.23.1';
+import { db } from '../db/db.js?v=2026.07.24.1';
+import { emit, on } from '../observable.js?v=2026.07.24.1';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.1';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.1';
+import { configureSearch } from './search.js?v=2026.07.24.1';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.1';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.1';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.1';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.1';
 import {
     settingsScreen,
     chatScreen,
@@ -24,7 +24,7 @@ import {
     profileEditDialog,
     clarificationCard,
     PROVIDERS
-} from './templates.js?v=2026.07.23.1';
+} from './templates.js?v=2026.07.24.1';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -36,18 +36,37 @@ let pendingClarificationRespond = null;
 
 // ─── Throttled markdown-rendering token appender ─────────────────────────────
 
+// Chat replies stream token-by-token. Re-rendering the *entire* growing buffer as
+// markdown and rebuilding the whole message subtree on every throttle tick is O(n²)
+// over a stream, and markdown-it's linkify pass makes it ~3x worse on large replies
+// that aren't fenced (e.g. a model that echoes a big JSON blob when proposing a
+// change). That repeated work is what freezes the tab. To stay responsive we render
+// large buffers as cheap escaped plain text while streaming and only run full
+// markdown once, at flush — and skip even that for pathologically huge replies.
+const STREAM_MARKDOWN_MAX = 20_000;  // chars: above this, stream as plain text
+const FLUSH_MARKDOWN_MAX = 200_000;  // chars: above this, the final paint stays plain text too
+
 let fullResponseRef = '';
 let tokenTarget = null;
+let lastRenderedLen = -1;
 
 export const getCurrentAiScreen = () => currentScreen;
 
+// Paint streamed content into `el`, preserving injected step/preview cards.
+function paintStreamedContent(el, text, allowMarkdown) {
+    const preserved = [...el.querySelectorAll('.ai-gen-step, .ai-cv-preview')];
+    el.innerHTML = allowMarkdown
+        ? renderMarkdown(text)
+        : `<pre class="ai-stream-raw" style="white-space:pre-wrap;overflow-x:auto;margin:0">${escapeHtml(text)}</pre>`;
+    for (const child of preserved) el.appendChild(child);
+}
+
 const renderStreamMarkdown = throttle(() => {
-    if (tokenTarget && fullResponseRef) {
-        const preserved = [...tokenTarget.querySelectorAll('.ai-gen-step, .ai-cv-preview')];
-        tokenTarget.innerHTML = renderMarkdown(fullResponseRef);
-        for (const el of preserved) tokenTarget.appendChild(el);
-        scrollMessagesToBottom();
-    }
+    if (!tokenTarget || !fullResponseRef) return;
+    if (fullResponseRef.length === lastRenderedLen) return; // no new tokens since last paint
+    lastRenderedLen = fullResponseRef.length;
+    paintStreamedContent(tokenTarget, fullResponseRef, fullResponseRef.length <= STREAM_MARKDOWN_MAX);
+    scrollMessagesToBottom();
 }, { delay: 500, throws: false });
 
 function appendToken(el, fullResponse) {
@@ -58,11 +77,10 @@ function appendToken(el, fullResponse) {
 
 function flushRemainingTokens() {
     if (tokenTarget && fullResponseRef) {
-        const preserved = [...tokenTarget.querySelectorAll('.ai-gen-step, .ai-cv-preview')];
-        tokenTarget.innerHTML = renderMarkdown(fullResponseRef);
-        for (const el of preserved) tokenTarget.appendChild(el);
+        paintStreamedContent(tokenTarget, fullResponseRef, fullResponseRef.length <= FLUSH_MARKDOWN_MAX);
         fullResponseRef = '';
         tokenTarget = null;
+        lastRenderedLen = -1;
         scrollMessagesToBottom();
     }
 }
@@ -197,6 +215,12 @@ const validators = {
             `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
         );
         if (!res.ok) throw new Error(`Gemini: ${res.status}`);
+    },
+    'fireworks': async (apiKey) => {
+        const res = await fetch('https://api.fireworks.ai/inference/v1/models', {
+            headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        if (!res.ok) throw new Error(`Fireworks: ${res.status}`);
     }
 };
 async function validateApiKey(provider, apiKey, model) {
@@ -1052,7 +1076,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.23.1');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.1');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1295,7 +1319,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.23.1');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.1');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();

@@ -1,6 +1,6 @@
 // UI Utility Functions
 
-import { emit } from './observable.js?v=2026.07.23.1';
+import { emit } from './observable.js?v=2026.07.24.1';
 
 export function toggleFullscreen() {
     const container = document.querySelector('.split-view-container');

@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.23.1';
-import { formatByteSize } from '../utils.js?v=2026.07.23.1';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.1';
+import { formatByteSize } from '../utils.js?v=2026.07.24.1';
 
 const PROVIDERS = [
     {
@@ -21,6 +21,15 @@ const PROVIDERS = [
         name: 'Gemini',
         smallDefault: 'gemini-3-flash-preview',
         responseDefault: 'gemini-3-pro-preview'
+    },
+    {
+        id: 'fireworks',
+        name: 'Fireworks',
+        // Both models must support tool calling (the router uses withStructuredOutput,
+        // the generator drives the tool-calling agent). Kimi K2 is Fireworks' documented
+        // function-calling model; verify `supportsTools` if you swap these out.
+        smallDefault: 'accounts/fireworks/models/llama-v3p1-8b-instruct',
+        responseDefault: 'accounts/fireworks/models/kimi-k2-instruct-0905'
     }
 ];
 

@@ -32,8 +32,15 @@ const CDN = {
     openai: 'https://cdn.jsdelivr.net/npm/@langchain/openai@0.5.12/+esm',
     anthropic: 'https://cdn.jsdelivr.net/npm/@langchain/anthropic@0.3.21/+esm',
     'google-genai': 'https://cdn.jsdelivr.net/npm/@langchain/google-genai@0.2.12/+esm',
+    // Fireworks exposes an OpenAI-compatible API, so it reuses the OpenAI adapter
+    // (ChatOpenAI) with a base-URL override — see #buildBaseConfig.
+    fireworks: 'https://cdn.jsdelivr.net/npm/@langchain/openai@0.5.12/+esm',
     core: 'https://cdn.jsdelivr.net/npm/@langchain/core/messages/+esm',
 };
+
+// Fireworks OpenAI-compatible endpoint. Model ids look like
+// `accounts/fireworks/models/<name>` (set in Settings).
+const FIREWORKS_BASE_URL = 'https://api.fireworks.ai/inference/v1';
 
 // ─── Provider Factories ──────────────────────────────────────────────────────
 
@@ -41,11 +48,12 @@ const PROVIDER_FACTORY = {
     openai: null,
     anthropic: null,
     'google-genai': null,
+    fireworks: null,
 };
 
 /**
  * Lazy-loads a LangChain provider module from CDN and caches it.
- * @param {'openai'|'anthropic'|'google-genai'} provider
+ * @param {'openai'|'anthropic'|'google-genai'|'fireworks'} provider
  * @returns {Promise<Function>} The chat model constructor
  */
 async function loadProvider(provider) {
@@ -60,6 +68,7 @@ async function loadProvider(provider) {
         openai: mod.ChatOpenAI,
         anthropic: mod.ChatAnthropic,
         'google-genai': mod.ChatGoogleGenerativeAI,
+        fireworks: mod.ChatOpenAI,
     };
 
     PROVIDER_FACTORY[provider] = constructors[provider];
@@ -405,10 +414,11 @@ export class CvAgent {
      * a cheap router model and a reasoning generator model with tools.
      *
      * @param {object} settings
-     * @param {string} settings.activeProvider - 'openai' | 'anthropic' | 'google-genai'
+     * @param {string} settings.activeProvider - 'openai' | 'anthropic' | 'google-genai' | 'fireworks'
      * @param {object} settings['provider:openai']
      * @param {object} settings['provider:anthropic']
      * @param {object} settings['provider:google-genai']
+     * @param {object} settings['provider:fireworks']
      */
     async configure(settings) {
         const provider = settings.activeProvider;
@@ -487,6 +497,15 @@ export class CvAgent {
             },
             'google-genai': {
                 apiKey,
+            },
+            // OpenAI-compatible: ChatOpenAI + Fireworks base URL. Fireworks sends
+            // permissive CORS headers, so the browser call succeeds directly.
+            fireworks: {
+                openAIApiKey: apiKey,
+                configuration: {
+                    baseURL: FIREWORKS_BASE_URL,
+                    dangerouslyAllowBrowser: true,
+                },
             },
         };
 
