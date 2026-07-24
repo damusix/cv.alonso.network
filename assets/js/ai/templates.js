@@ -1,7 +1,7 @@
 // AI Templates — HTML template functions for settings and chat screens
 
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.8';
-import { formatByteSize } from '../utils.js?v=2026.07.24.8';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.9';
+import { formatByteSize } from '../utils.js?v=2026.07.24.9';
 
 const PROVIDERS = [
     {

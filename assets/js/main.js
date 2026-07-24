@@ -1,17 +1,17 @@
 // Main Entry Point
 
-import { cvData } from './config.js?v=2026.07.24.8';
-import { renderCV } from './cv-renderer.js?v=2026.07.24.8';
-import { initializeEditor, toggleEditor, setEditorMode, applyChanges, resetData } from './editor.js?v=2026.07.24.8';
-import { initializeActionMenu, toggleActionMenu, openEditor, printCV } from './action-menu.js?v=2026.07.24.8';
-import { initializeKeyboardShortcuts } from './keyboard.js?v=2026.07.24.8';
-import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.8';
-import { loadAndApplyStyles } from './styles.js?v=2026.07.24.8';
-import { initializeModal, showHelpModal, showPromptModal, showPrivacyModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js?v=2026.07.24.8';
-import { exportCV, importCV } from './exports.js?v=2026.07.24.8';
-import { initializeSplitPane, restoreEditorPaneState } from './split-pane.js?v=2026.07.24.8';
-import { initializeToasts, notify } from './toast.js?v=2026.07.24.8';
-import { on } from './observable.js?v=2026.07.24.8';
+import { cvData } from './config.js?v=2026.07.24.9';
+import { renderCV } from './cv-renderer.js?v=2026.07.24.9';
+import { initializeEditor, toggleEditor, setEditorMode, applyChanges, resetData } from './editor.js?v=2026.07.24.9';
+import { initializeActionMenu, toggleActionMenu, openEditor, printCV } from './action-menu.js?v=2026.07.24.9';
+import { initializeKeyboardShortcuts } from './keyboard.js?v=2026.07.24.9';
+import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.9';
+import { loadAndApplyStyles } from './styles.js?v=2026.07.24.9';
+import { initializeModal, showHelpModal, showPromptModal, showPrivacyModal, closeModal, copyModalMarkdown, isFirstVisit, markVisited } from './modal.js?v=2026.07.24.9';
+import { exportCV, importCV } from './exports.js?v=2026.07.24.9';
+import { initializeSplitPane, restoreEditorPaneState } from './split-pane.js?v=2026.07.24.9';
+import { initializeToasts, notify } from './toast.js?v=2026.07.24.9';
+import { on } from './observable.js?v=2026.07.24.9';
 
 // Async initialization
 (async function() {
