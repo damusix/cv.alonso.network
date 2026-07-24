@@ -671,6 +671,98 @@ async function typeSizes() {
     }
 }
 
+// ---------------------------------------------------------------- approval states
+
+/** Render each state of the human-in-the-loop change-approval UI and screenshot it to
+ *  tmp/run-shots/. Pure template rendering (no live LLM needed) against the real app
+ *  CSS, so the diff/contrast is exercised exactly as production loads it. */
+async function approvalStates() {
+    const { origin, proc } = await startServer();
+    const browser = await chromium.launch({ headless: !HEADED });
+    const page = await newPage(browser, origin);
+
+    // Render helper runs in the page: imports the app's templates (version read from
+    // version.js so it never drifts) and drops the given change into a fresh modal.
+    const renderDialog = async (change) => {
+        await page.evaluate(async (c) => {
+            const { VERSION } = await import('/assets/js/version.js');
+            const t = await import(`/assets/js/ai/templates.js?v=${VERSION}`);
+            document.querySelectorAll('.ai-approval-overlay, #approval-inline').forEach((e) => e.remove());
+            document.body.insertAdjacentHTML('beforeend', t.approvalDialog(c));
+        }, change);
+        await page.waitForTimeout(250); // let the fade-in animation settle before the shot
+    };
+
+    const SET = {
+        summary: 'Sharpen the title and quantify scope.', operation: 'set', path: 'summary',
+        before: 'Senior software engineer with 14 years of experience building web applications for healthcare and finance companies.',
+        data: 'Senior software engineer and technical lead with 14+ years building scalable web applications for healthcare and fintech companies.',
+    };
+
+    try {
+        await open(page);
+        const shots = [];
+
+        await renderDialog(SET);
+        shots.push(await shot(page, 'approval-1-set'));
+
+        await renderDialog({
+            summary: 'Add the new Staff Engineer role at the top of Experience.', operation: 'insert', path: 'sections.0.items.0',
+            before: undefined,
+            data: {
+                title: 'Staff Engineer', subtitle: 'Acme Corp', period: { start: '2023', end: 'Present' }, location: 'Remote',
+                content: ['Led platform re-architecture cutting p95 latency 40%.', 'Mentored 6 engineers across two squads.'], tags: ['TypeScript', 'Kubernetes', 'Go'],
+            },
+        });
+        shots.push(await shot(page, 'approval-2-insert'));
+
+        await renderDialog({
+            summary: 'Remove the oldest early-career role to tighten the resume.', operation: 'delete', path: 'sections.0.items.4', data: null,
+            before: {
+                title: 'Junior Developer', subtitle: 'First Job Inc', period: { start: '2009', end: '2011' }, location: 'Miami, FL',
+                content: ['Maintained legacy PHP intranet.', 'Wrote unit tests for billing module.'], tags: ['PHP', 'MySQL'],
+            },
+        });
+        shots.push(await shot(page, 'approval-3-delete'));
+
+        // Inline transcript records + the runaway-cap error bubble.
+        await page.evaluate(async () => {
+            const { VERSION } = await import('/assets/js/version.js');
+            const t = await import(`/assets/js/ai/templates.js?v=${VERSION}`);
+            document.querySelectorAll('.ai-approval-overlay, #approval-inline').forEach((e) => e.remove());
+            const err = t.errorBubble('Stopped after 24 tool calls without finishing — the model kept trying without converging. This can happen with smaller models on complex edits; try a more capable model or a simpler request.');
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="approval-inline" class="editor-panel" style="position:fixed;left:0;top:0;width:600px;background:#1e1e1e;padding:22px;z-index:2000;">
+                    <div class="ai-messages" style="display:flex;flex-direction:column;gap:6px;">
+                        <div class="ai-message ai-message-assistant"><div class="ai-message-content">Working through your edits one at a time.
+                            ${t.approvalRecord({ operation: 'set', path: 'summary', accepted: true })}
+                            ${t.approvalRecord({ operation: 'insert', path: 'sections.0.items.0', accepted: true })}
+                            ${t.approvalRecord({ operation: 'delete', path: 'sections.2', accepted: false })}
+                        </div></div>
+                        ${err}
+                    </div>
+                </div>`);
+        });
+        await page.waitForTimeout(150);
+        fs.mkdirSync(SHOTS, { recursive: true });
+        const recFile = path.join(SHOTS, 'approval-4-records-and-error.png');
+        await page.locator('#approval-inline').screenshot({ path: recFile });
+        shots.push(recFile);
+        await page.evaluate(() => document.getElementById('approval-inline')?.remove());
+
+        // Narrow viewport — before/after should stack.
+        await page.setViewportSize({ width: 560, height: 820 });
+        await renderDialog(SET);
+        shots.push(await shot(page, 'approval-5-narrow'));
+
+        console.log(`${shots.length} state(s) -> tmp/run-shots/`);
+        for (const s of shots) console.log(`  ${s}`);
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
+
 // ----------------------------------------------------------------
 
 const URL_OVERRIDE = opt('url', null);
@@ -686,4 +778,5 @@ else if (cmd === 'repl') await repl();
 else if (cmd === 'shot') await oneShot();
 else if (cmd === 'print') await oneShotPrint();
 else if (cmd === 'sizes') await typeSizes();
-else { console.error(`unknown command '${cmd}' — expected smoke | repl | shot | print | sizes`); process.exit(2); }
+else if (cmd === 'approval-states') await approvalStates();
+else { console.error(`unknown command '${cmd}' — expected smoke | repl | shot | print | sizes | approval-states`); process.exit(2); }

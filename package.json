@@ -6,7 +6,8 @@
   "scripts": {
     "start": "http-server ./ -c-1 -o",
     "bump": "node scripts/bump-version.mjs",
-    "check-version": "node scripts/bump-version.mjs --check"
+    "check-version": "node scripts/bump-version.mjs --check",
+    "shots:approval": "node .claude/skills/run-cv-generator/driver.mjs approval-states"
   },
   "keywords": [],
   "author": "",
