@@ -1,13 +1,13 @@
 // Editor Management
 
-import { cvData, defaultMessage, STORAGE_CODE_KEY } from './config.js?v=2026.07.24.10';
-import { CVDataSchema } from './validation.js?v=2026.07.24.10';
-import { loadSavedData, saveCVData, saveEditorMode, clearSavedData, saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js?v=2026.07.24.10';
-import { renderCV } from './cv-renderer.js?v=2026.07.24.10';
-import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.10';
-import { applyStyles, getCurrentStyles, resetStyles } from './styles.js?v=2026.07.24.10';
-import { toggleEditorPane, isEditorPaneOpen } from './split-pane.js?v=2026.07.24.10';
-import { emit, on } from './observable.js?v=2026.07.24.10';
+import { cvData, defaultMessage, STORAGE_CODE_KEY } from './config.js?v=2026.07.24.11';
+import { CVDataSchema } from './validation.js?v=2026.07.24.11';
+import { loadSavedData, saveCVData, saveEditorMode, clearSavedData, saveEditorState, loadEditorState, saveDraft, loadDraft, clearDraft, hasDraft, saveCursorPosition, loadCursorPosition } from './storage.js?v=2026.07.24.11';
+import { renderCV } from './cv-renderer.js?v=2026.07.24.11';
+import { toggleFullscreen } from './ui-utils.js?v=2026.07.24.11';
+import { applyStyles, getCurrentStyles, resetStyles } from './styles.js?v=2026.07.24.11';
+import { toggleEditorPane, isEditorPaneOpen } from './split-pane.js?v=2026.07.24.11';
+import { emit, on } from './observable.js?v=2026.07.24.11';
 
 let editor;
 let editorMode = 'javascript';
@@ -46,7 +46,7 @@ export async function initializeEditor() {
         document.getElementById('aiContainer').style.display = 'flex';
     }
 
-    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.56.0/min/vs' } });
     await new Promise((resolveMonaco) => {
     require(['vs/editor/editor.main'], async function () {
         let initialValue;

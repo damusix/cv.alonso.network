@@ -1,14 +1,14 @@
 // AI UI Coordinator — manages settings/chat screens and event delegation
 
-import { db } from '../db/db.js?v=2026.07.24.10';
-import { emit, on } from '../observable.js?v=2026.07.24.10';
-import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.10';
-import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.10';
-import { configureSearch } from './search.js?v=2026.07.24.10';
-import { renderCV } from '../cv-renderer.js?v=2026.07.24.10';
-import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.10';
-import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.10';
-import { renderMarkdown } from '../markdown.js?v=2026.07.24.10';
+import { db } from '../db/db.js?v=2026.07.24.11';
+import { emit, on } from '../observable.js?v=2026.07.24.11';
+import { attempt, clone, reach, setDeep, throttle, debounce, formatByteSize } from '../utils.js?v=2026.07.24.11';
+import { estimateTokens, trimChatHistory, formatTranscript, truncateSummary } from './memory.js?v=2026.07.24.11';
+import { configureSearch } from './search.js?v=2026.07.24.11';
+import { renderCV } from '../cv-renderer.js?v=2026.07.24.11';
+import { saveCVData, loadSavedData } from '../storage.js?v=2026.07.24.11';
+import { applyStyles, getCurrentStyles } from '../styles.js?v=2026.07.24.11';
+import { renderMarkdown } from '../markdown.js?v=2026.07.24.11';
 import {
     settingsScreen,
     chatScreen,
@@ -26,7 +26,7 @@ import {
     approvalDialog,
     approvalRecord,
     PROVIDERS
-} from './templates.js?v=2026.07.24.10';
+} from './templates.js?v=2026.07.24.11';
 
 // ─── Internal State ──────────────────────────────────────────────────────────
 
@@ -837,8 +837,8 @@ async function extractTextFromFile(file) {
 }
 
 async function extractPdfText(file) {
-    const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+    const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.worker.min.mjs';
 
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -852,7 +852,7 @@ async function extractPdfText(file) {
 }
 
 async function extractDocxText(file) {
-    const mammoth = await import('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/+esm');
+    const mammoth = await import('https://cdn.jsdelivr.net/npm/mammoth@1.12.0/+esm');
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
     return result.value;
@@ -1141,7 +1141,7 @@ function setupEventDelegation(container) {
                 // Update preview
                 const preview = container.querySelector('.ai-profile-preview');
                 if (preview) {
-                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.10');
+                    const { renderMarkdown } = await import('../markdown.js?v=2026.07.24.11');
                     const display = profileValue.length > 300
                         ? profileValue.slice(0, 300) + '...'
                         : profileValue;
@@ -1384,7 +1384,7 @@ async function handleSaveSettings(container) {
 // ─── Initialization ──────────────────────────────────────────────────────────
 
 export async function initializeAI(container) {
-    const { CvAgent } = await import('./langchain.js?v=2026.07.24.10');
+    const { CvAgent } = await import('./langchain.js?v=2026.07.24.11');
     agent = new CvAgent();
 
     const hasSettings = await db.hasValidSettings();

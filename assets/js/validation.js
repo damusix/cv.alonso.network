@@ -1,6 +1,6 @@
 // Zod Schema Validation
 
-import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
+import { z } from 'https://cdn.jsdelivr.net/npm/zod@4.4.3/+esm';
 
 export const LinkSchema = z.object({
     name: z.string().min(1, "Link name is required").describe("The display name of the link"),

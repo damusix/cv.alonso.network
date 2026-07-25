@@ -563,21 +563,3 @@ export const isAssertError = U.isAssertError;
  *     p.clear(); // cancels the timeout, promise never resolves
  */
 export const wait = U.wait;
-
-/**
- * A Promise subclass with a `.clear()` method to cancel the pending timeout.
- * Returned by `wait()`.
- *
- * @class
- * @extends Promise<T>
- * @template T
- *
- * @param {(resolve: (value: T | PromiseLike<T>) => void, reject: (reason?: any) => void) => void} executor
- *
- * @property {() => void} clear - Cancels the timeout, preventing resolution
- *
- * @method then<TResult1, TResult2>(onfulfilled?, onrejected?): Promise<TResult1 | TResult2>
- * @method catch<TResult>(onrejected?): Promise<T | TResult>
- * @method finally(onfinally?): Promise<T>
- */
-export const TimeoutPromise = U.TimeoutPromise;

@@ -1,30 +1,30 @@
 // AI LangChain Agent — CvAgent class with tool-calling for web fetch, search, and editor context
 
-import { z } from 'https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm';
-import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.10';
+import { z } from 'https://cdn.jsdelivr.net/npm/zod@4.4.3/+esm';
+import { attempt, attemptSync, withTimeout } from '../utils.js?v=2026.07.24.11';
 import {
     AiPartialUpdateSchema,
     CVDataSchema,
     PersonalSchema,
     SectionSchema,
-} from './schemas.js?v=2026.07.24.10';
+} from './schemas.js?v=2026.07.24.11';
 import {
     AGENT_SYSTEM_PROMPT,
     DATE_CONTEXT,
-} from './prompts.js?v=2026.07.24.10';
-import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.10';
-import { once, emit } from '../observable.js?v=2026.07.24.10';
+} from './prompts.js?v=2026.07.24.11';
+import { webSearch, isSearchConfigured, isTavilyConfigured, tavilySearch, tavilyExtract, tavilyCrawl, tavilyMap } from './search.js?v=2026.07.24.11';
+import { once, emit } from '../observable.js?v=2026.07.24.11';
 
 // ─── CDN URLs ────────────────────────────────────────────────────────────────
 
 const CDN = {
-    openai: 'https://cdn.jsdelivr.net/npm/@langchain/openai@0.5.12/+esm',
-    anthropic: 'https://cdn.jsdelivr.net/npm/@langchain/anthropic@0.3.21/+esm',
-    'google-genai': 'https://cdn.jsdelivr.net/npm/@langchain/google-genai@0.2.12/+esm',
+    openai: 'https://cdn.jsdelivr.net/npm/@langchain/openai@1.5.5/+esm',
+    anthropic: 'https://cdn.jsdelivr.net/npm/@langchain/anthropic@1.5.2/+esm',
+    'google-genai': 'https://cdn.jsdelivr.net/npm/@langchain/google-genai@2.2.0/+esm',
     // Fireworks exposes an OpenAI-compatible API, so it reuses the OpenAI adapter
     // (ChatOpenAI) with a base-URL override — see #buildBaseConfig.
-    fireworks: 'https://cdn.jsdelivr.net/npm/@langchain/openai@0.5.12/+esm',
-    core: 'https://cdn.jsdelivr.net/npm/@langchain/core/messages/+esm',
+    fireworks: 'https://cdn.jsdelivr.net/npm/@langchain/openai@1.5.5/+esm',
+    core: 'https://cdn.jsdelivr.net/npm/@langchain/core@1.2.3/messages/+esm',
 };
 
 // Fireworks OpenAI-compatible endpoint. Model ids look like
@@ -445,14 +445,6 @@ export class CvAgent {
             ...(fireworksKwargs ? { modelKwargs: fireworksKwargs } : {}),
         });
 
-        // LangChain Anthropic adapter defaults topP/topK to -1 which the API rejects
-        if (provider === 'anthropic') {
-            for (const m of [this.#routerModel, this.#generatorModel]) {
-                m.topP = undefined;
-                m.topK = undefined;
-            }
-        }
-
         // Bind the full tool set to the generator model — one agent loop drives everything
         // (chat, from-scratch generation, targeted edits, styling). No per-intent subsets.
         const [toolModel] = attemptSync(() => this.#generatorModel.bindTools(ALL_TOOLS));
@@ -469,13 +461,16 @@ export class CvAgent {
      * @returns {object}
      */
     #buildBaseConfig(provider, apiKey) {
+        // LangChain v1 standardized on `apiKey` for every provider; the old
+        // provider-specific aliases (`openAIApiKey`) are silently ignored, and the
+        // Anthropic browser-safety flag moved to `clientOptions.dangerouslyAllowBrowser`.
         const configs = {
             openai: {
-                openAIApiKey: apiKey,
+                apiKey,
             },
             anthropic: {
-                anthropicApiKey: apiKey,
-                anthropicDangerouslyAllowBrowser: true,
+                apiKey,
+                clientOptions: { dangerouslyAllowBrowser: true },
             },
             'google-genai': {
                 apiKey,
@@ -484,7 +479,7 @@ export class CvAgent {
             // strips x-stainless-* headers the OpenAI SDK adds, which Fireworks' CORS
             // policy rejects (see stripStainlessFetch).
             fireworks: {
-                openAIApiKey: apiKey,
+                apiKey,
                 configuration: {
                     baseURL: FIREWORKS_BASE_URL,
                     dangerouslyAllowBrowser: true,
@@ -994,7 +989,7 @@ export class CvAgent {
     async summarize(transcript, existingSummary = null) {
         this.#assertConfigured();
 
-        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.10');
+        const { SUMMARIZATION_PROMPT } = await import('./prompts.js?v=2026.07.24.11');
 
         const userPrompt = existingSummary
             ? `Previous summary:\n${existingSummary}\n\nNew messages to incorporate:\n${transcript}`
